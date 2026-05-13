@@ -1,0 +1,30 @@
+{
+  "name": "parallaxer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "@tauri-apps/api": "^2.0.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/test-utils": "^2.4.6",
+    "@vue/tsconfig": "^0.5.1",
+    "jsdom": "^26.1.0",
+    "typescript": "~5.6.2",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.0",
+    "vue-tsc": "^2.1.6"
+  }
+}
