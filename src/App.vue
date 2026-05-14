@@ -632,6 +632,7 @@ onBeforeUnmount(() => {
                   :configuration="activePlaybackConfiguration"
                   :available-monitors="workbench.state.monitors"
                   :selected-monitor-key="workbench.state.selectedConfigurationMonitorKey"
+                  :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma"
                   @name-changed="workbench.updateSelectedConfigurationName"
                   @description-changed="workbench.updateSelectedConfigurationDescription"
                   @add-monitor="workbench.addMonitorToSelectedConfiguration"
@@ -645,40 +646,28 @@ onBeforeUnmount(() => {
                       })
                   "
                   @rotation-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.rotation = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('rotation', value, deviceId, syncAll)
                   "
                   @mirror-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.mirror = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('mirror', value, deviceId, syncAll)
                   "
                   @fit-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.fit = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('fit', value, deviceId, syncAll)
                   "
                   @scale-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.scale = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('scale', value, deviceId, syncAll)
                   "
                   @offset-x-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.offsetX = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('offsetX', value, deviceId, syncAll)
                   "
                   @offset-y-changed="
-                    (deviceId, value) =>
-                      workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                        monitor.mapping.offsetY = value;
-                      })
+                    (deviceId, value, syncAll) =>
+                      workbench.updateConfigurationMappingValue('offsetY', value, deviceId, syncAll)
                   "
                 />
               </div>
@@ -693,7 +682,8 @@ onBeforeUnmount(() => {
 
         <ConfigurationEditor v-else-if="workbench.state.currentPage === 'configuration'"
           :configuration="workbench.selectedConfiguration.value" :available-monitors="workbench.state.monitors"
-          :selected-monitor-key="workbench.state.selectedConfigurationMonitorKey" @name-changed="
+          :selected-monitor-key="workbench.state.selectedConfigurationMonitorKey"
+          :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma" @name-changed="
             workbench.updateSelectedConfigurationName
           " @description-changed="
             workbench.updateSelectedConfigurationDescription
@@ -706,35 +696,23 @@ onBeforeUnmount(() => {
                 monitor.shortName = value;
               })
           " @rotation-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.rotation = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('rotation', value, deviceId, syncAll)
           " @mirror-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.mirror = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('mirror', value, deviceId, syncAll)
           " @fit-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.fit = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('fit', value, deviceId, syncAll)
           " @scale-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.scale = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('scale', value, deviceId, syncAll)
           " @offset-x-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.offsetX = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('offsetX', value, deviceId, syncAll)
           " @offset-y-changed="
-            (deviceId, value) =>
-              workbench.updateSelectedConfigurationMonitor(deviceId, (monitor) => {
-                monitor.mapping.offsetY = value;
-              })
+            (deviceId, value, syncAll) =>
+              workbench.updateConfigurationMappingValue('offsetY', value, deviceId, syncAll)
           " />
 
         <PlaylistEditor v-else-if="workbench.state.currentPage === 'playlist'"
@@ -744,7 +722,8 @@ onBeforeUnmount(() => {
           @configuration-changed="workbench.updateSelectedPlaylistConfiguration"
           @visibility-changed="workbench.updateSelectedPlaylistEntryVisibility" />
 
-        <SettingsView v-else :recent-folders="workbench.state.settings.recentPlaylistFolders" />
+        <SettingsView v-else :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma"
+          @monitor-strip-gamma-changed="workbench.updateMonitorStripHeightGamma" />
       </WorkspaceFrame>
     </section>
   </main>

@@ -75,7 +75,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
         :key="button.key"
         class="shell-sidebar-button"
         type="button"
-        :title="button.hoverTip"
+        :data-tooltip="button.hoverTip || null"
         @click="emit('head-button-clicked', button.key)"
       >
         <i v-if="button.icon" :class="iconClasses(button.icon)" />
@@ -93,7 +93,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
               :key="`${list.key}-${action.key ?? action.icon}`"
               class="shell-sidebar-action"
               type="button"
-              :title="action.hoverTip"
+              :data-tooltip="action.hoverTip || null"
               @click="action.key && emit('list-button-clicked', list.key, null, action.key)"
             >
               <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
@@ -118,7 +118,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
               v-if="item.head"
               class="shell-sidebar-action shell-sidebar-head-action shell-sidebar-head-base"
               type="button"
-              :title="item.head.hoverTip"
+              :data-tooltip="item.head.hoverTip || null"
               @click.stop="item.head.key && emit('list-button-clicked', list.key, item.key, item.head.key)"
             >
               <i :class="iconClasses(item.head.icon)" :style="iconStyle(item.head.color)" />
@@ -127,7 +127,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
               v-if="item.hoverHead"
               class="shell-sidebar-action shell-sidebar-head-action shell-sidebar-head-hover"
               type="button"
-              :title="item.hoverHead.hoverTip"
+              :data-tooltip="item.hoverHead.hoverTip || null"
               @click.stop="item.hoverHead.key && emit('list-button-clicked', list.key, item.key, item.hoverHead.key)"
             >
               <i :class="iconClasses(item.hoverHead.icon)" :style="iconStyle(item.hoverHead.color)" />
@@ -141,7 +141,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
                   <button
                     class="shell-sidebar-action"
                     type="button"
-                    :title="item.tail.hoverTip"
+                    :data-tooltip="item.tail.hoverTip || null"
                     @click.stop="item.tail.key && emit('list-button-clicked', list.key, item.key, item.tail.key)"
                   >
                     <i :class="iconClasses(item.tail.icon)" :style="iconStyle(item.tail.color)" />
@@ -160,7 +160,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
                     :key="`${item.key}-${action.key ?? action.icon}`"
                     class="shell-sidebar-action"
                     type="button"
-                    :title="action.hoverTip"
+                    :data-tooltip="action.hoverTip || null"
                     @click.stop="action.key && emit('list-button-clicked', list.key, item.key, action.key)"
                   >
                     <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
@@ -179,7 +179,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
         :key="button.key"
         class="shell-sidebar-button"
         type="button"
-        :title="button.hoverTip"
+        :data-tooltip="button.hoverTip || null"
         @click="emit('tail-button-clicked', button.key)"
       >
         <i v-if="button.icon" :class="iconClasses(button.icon)" />

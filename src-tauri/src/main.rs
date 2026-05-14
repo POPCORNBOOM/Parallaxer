@@ -89,7 +89,7 @@ struct MonitorOverride {
     friendly_name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 struct AppSettings {
@@ -97,8 +97,28 @@ struct AppSettings {
     monitor_history: Vec<MonitorRecord>,
     recent_playlist_folders: Vec<String>,
     cache: BTreeMap<String, Value>,
+    #[serde(default = "default_monitor_strip_height_gamma")]
+    monitor_strip_height_gamma: f64,
     last_selected_page: Option<String>,
     last_selected_entity_id: Option<String>,
+}
+
+fn default_monitor_strip_height_gamma() -> f64 {
+    2.6
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            monitor_overrides: BTreeMap::new(),
+            monitor_history: Vec::new(),
+            recent_playlist_folders: Vec::new(),
+            cache: BTreeMap::new(),
+            monitor_strip_height_gamma: default_monitor_strip_height_gamma(),
+            last_selected_page: None,
+            last_selected_entity_id: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

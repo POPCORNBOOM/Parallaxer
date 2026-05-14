@@ -32,7 +32,7 @@ function iconStyle(color?: string): { color?: string } | undefined {
       </div>
       <div class="workspace-actions" :class="{ empty: actions.length === 0 }">
         <button v-for="action in actions" :key="action.key ?? action.icon" class="workspace-action" type="button"
-          :title="action.hoverTip" @click="action.key && emit('action', action.key)">
+          :data-tooltip="action.hoverTip || null" @click="action.key && emit('action', action.key)">
           <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
         </button>
       </div>

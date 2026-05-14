@@ -153,6 +153,10 @@ export const messages = {
       appRoot: 'App Root',
       storageHint:
         'Settings and monitor labels are stored in ~/.parallaxer, while each playlist persists beside its source folder as playlist.json.',
+      monitorStripGamma: 'Monitor strip nonlinear scale gamma',
+      monitorStripGammaHint:
+        'Adjust how aggressively smaller monitors are visually compressed in the layout strip.',
+      monitorStripGammaPreview: 'Preview (4 samples from small to large).',
       recentPlaylistFolders: 'Recent Playlist Folders',
       noRecentPlaylistFolders: 'No recent playlist folders yet.'
     },
@@ -187,8 +191,8 @@ export const messages = {
       namePlaceholder: 'Configuration name',
       description: 'Description',
       descriptionPlaceholder: 'Describe this monitor mapping',
-      layoutTitle: 'Monitor layout',
-      layoutCopy: 'Physical scale stays relative to the widest display in this configuration.',
+      layoutTitle: 'Monitor list',
+      layoutCopy: 'Drag to reorder, the order determines where the image goes when auto-splitting',
       remove: 'Remove',
       shortName: 'Short name',
       shortNamePlaceholder: 'display-a',
@@ -203,7 +207,6 @@ export const messages = {
         none: 'none',
         horizontal: 'horizontal',
         vertical: 'vertical',
-        both: 'both',
         contain: 'contain',
         cover: 'cover',
         fill: 'fill'
@@ -369,6 +372,9 @@ export const messages = {
     settings: {
       appRoot: '应用根目录',
       storageHint: '设置和显示器标签保存在 ~/.parallaxer；每个播放列表会在其源目录旁以 playlist.json 持久化。',
+      monitorStripGamma: '显示器条非线性缩放 Gamma',
+      monitorStripGammaHint: '调整布局条中小尺寸显示器的压缩强度。',
+      monitorStripGammaPreview: '预览（从小到大 4 个样本）。',
       recentPlaylistFolders: '最近播放列表目录',
       noRecentPlaylistFolders: '暂无最近播放列表目录。'
     },
@@ -403,8 +409,8 @@ export const messages = {
       namePlaceholder: '配置名称',
       description: '描述',
       descriptionPlaceholder: '描述该显示器映射',
-      layoutTitle: '显示器布局',
-      layoutCopy: '物理比例会相对当前配置中最宽的显示器保持一致。',
+      layoutTitle: '显示器列表',
+      layoutCopy: '拖动重排序，顺序决定了自动切分时影像的去向',
       remove: '移除',
       shortName: '短名称',
       shortNamePlaceholder: 'display-a',
@@ -419,7 +425,6 @@ export const messages = {
         none: '无',
         horizontal: '水平',
         vertical: '垂直',
-        both: '双向',
         contain: '包含',
         cover: '覆盖',
         fill: '拉伸填充'

@@ -10,6 +10,8 @@ import type {
   Rotation
 } from '../../types';
 import {
+  mapMonitorStripHeight,
+  MONITOR_STRIP_REFERENCE_HEIGHT,
   buildMediaFrameStyle,
   buildMonitorTransform,
   formatMonitorTitle,
@@ -21,6 +23,7 @@ const props = defineProps<{
   configuration: ConfigurationRecord | null;
   availableMonitors: MonitorRecord[];
   selectedMonitorKey: string | null;
+  monitorStripHeightGamma: number;
 }>();
 
 const emit = defineEmits<{
@@ -31,27 +34,25 @@ const emit = defineEmits<{
   'remove-monitor': [deviceId: string];
   'reorder-monitors': [orderedDeviceIds: string[]];
   'short-name-changed': [deviceId: string, value: string];
-  'rotation-changed': [deviceId: string, value: Rotation];
-  'mirror-changed': [deviceId: string, value: MirrorMode];
-  'fit-changed': [deviceId: string, value: MediaFit];
-  'scale-changed': [deviceId: string, value: number];
-  'offset-x-changed': [deviceId: string, value: number];
-  'offset-y-changed': [deviceId: string, value: number];
+  'rotation-changed': [deviceId: string, value: Rotation, syncAll?: boolean];
+  'mirror-changed': [deviceId: string, value: MirrorMode, syncAll?: boolean];
+  'fit-changed': [deviceId: string, value: MediaFit, syncAll?: boolean];
+  'scale-changed': [deviceId: string, value: number, syncAll?: boolean];
+  'offset-x-changed': [deviceId: string, value: number, syncAll?: boolean];
+  'offset-y-changed': [deviceId: string, value: number, syncAll?: boolean];
 }>();
 
 const rotations: Rotation[] = [0, 90, 180, 270];
-const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical', 'both'];
+const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical'];
 const fits: MediaFit[] = ['contain', 'cover', 'fill', 'none'];
 const { t } = useI18n({ useScope: 'global' });
-const stripReferenceHeight = 216;
-const stripMinimumMappedHeight = 86;
-const stripHeightDecayGamma = 2.6;
 
 const addPickerOpen = ref(false);
 const addTriggerRef = ref<HTMLElement | null>(null);
 const addPickerElement = ref<HTMLElement | null>(null);
 const stripScrollRef = ref<HTMLElement | null>(null);
 const addPickerStyle = ref<Record<string, string>>({});
+const shiftPressed = ref(false);
 const dragOrderedIds = ref<string[]>([]);
 const pressedDeviceId = ref<string | null>(null);
 const draggedDeviceId = ref<string | null>(null);
@@ -170,14 +171,10 @@ const stripMetrics = computed(() => {
   return configuredMonitors.value.map((monitor) => {
     const isReferenceMonitor = monitor.size.width === maxWidth;
     const rawHeight = isReferenceMonitor
-      ? stripReferenceHeight
-      : stripReferenceHeight * (monitor.size.height / maxWidth);
-    const normalizedHeight = Math.min(Math.max(rawHeight / stripReferenceHeight, 0), 1);
-    const mappedHeight =
-      stripMinimumMappedHeight +
-      (stripReferenceHeight - stripMinimumMappedHeight) *
-      (1 - Math.exp(-stripHeightDecayGamma * normalizedHeight)) /
-      (1 - Math.exp(-stripHeightDecayGamma));
+      ? MONITOR_STRIP_REFERENCE_HEIGHT
+      : MONITOR_STRIP_REFERENCE_HEIGHT * (monitor.size.height / maxWidth);
+    const normalizedHeight = Math.min(Math.max(rawHeight / MONITOR_STRIP_REFERENCE_HEIGHT, 0), 1);
+    const mappedHeight = mapMonitorStripHeight(normalizedHeight, props.monitorStripHeightGamma);
     const aspectRatio = monitor.size.height > 0 ? monitor.size.width / monitor.size.height : 1;
     const width = mappedHeight * aspectRatio;
     const height = mappedHeight;
@@ -191,7 +188,7 @@ const stripMetrics = computed(() => {
 });
 
 const stripHeight = computed(() =>
-  Math.max(stripReferenceHeight, ...stripMetrics.value.map((metric) => metric.height))
+  Math.max(MONITOR_STRIP_REFERENCE_HEIGHT, ...stripMetrics.value.map((metric) => metric.height))
 );
 
 const stripMetricsById = computed<Record<string, { width: number; height: number }>>(() =>
@@ -441,6 +438,22 @@ function parseNumberInput(event: Event, fallback: number): number {
   return Number.isFinite(next) ? next : fallback;
 }
 
+function shouldSyncAll(event?: MouseEvent): boolean {
+  return Boolean(event?.shiftKey || shiftPressed.value);
+}
+
+function onWindowKeydown(event: KeyboardEvent): void {
+  shiftPressed.value = event.shiftKey;
+}
+
+function onWindowKeyup(event: KeyboardEvent): void {
+  shiftPressed.value = event.shiftKey;
+}
+
+function onWindowBlur(): void {
+  shiftPressed.value = false;
+}
+
 function fitLabel(fit: MediaFit): string {
   if (fit === 'none') {
     return t('configuration.option.none');
@@ -454,6 +467,9 @@ onMounted(() => {
   window.addEventListener('pointerup', onMonitorPointerUp);
   window.addEventListener('resize', onViewportChanged);
   window.addEventListener('scroll', onViewportChanged, true);
+  window.addEventListener('keydown', onWindowKeydown);
+  window.addEventListener('keyup', onWindowKeyup);
+  window.addEventListener('blur', onWindowBlur);
 });
 
 onBeforeUnmount(() => {
@@ -462,6 +478,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', onMonitorPointerUp);
   window.removeEventListener('resize', onViewportChanged);
   window.removeEventListener('scroll', onViewportChanged, true);
+  window.removeEventListener('keydown', onWindowKeydown);
+  window.removeEventListener('keyup', onWindowKeyup);
+  window.removeEventListener('blur', onWindowBlur);
 });
 </script>
 
@@ -579,7 +598,7 @@ onBeforeUnmount(() => {
         <div class="choice-row">
           <button v-for="rotation in rotations" :key="rotation" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.rotation === rotation }" type="button"
-            @click="emit('rotation-changed', getSelectedMonitor()!.deviceId, rotation)">
+            @click="emit('rotation-changed', getSelectedMonitor()!.deviceId, rotation, shouldSyncAll($event))">
             {{ rotation }}
           </button>
         </div>
@@ -590,7 +609,7 @@ onBeforeUnmount(() => {
         <div class="choice-row">
           <button v-for="mirror in mirrors" :key="mirror" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.mirror === mirror }" type="button"
-            @click="emit('mirror-changed', getSelectedMonitor()!.deviceId, mirror)">
+            @click="emit('mirror-changed', getSelectedMonitor()!.deviceId, mirror, shouldSyncAll($event))">
             {{ t(`configuration.option.${mirror}`) }}
           </button>
         </div>
@@ -601,7 +620,7 @@ onBeforeUnmount(() => {
         <div class="choice-row">
           <button v-for="fit in fits" :key="fit" class="choice-button"
             :class="{ selected: (getSelectedMonitor()!.mapping.fit ?? 'contain') === fit }" type="button"
-            @click="emit('fit-changed', getSelectedMonitor()!.deviceId, fit)">
+            @click="emit('fit-changed', getSelectedMonitor()!.deviceId, fit, shouldSyncAll($event))">
             {{ fitLabel(fit) }}
           </button>
         </div>
@@ -615,7 +634,8 @@ onBeforeUnmount(() => {
               emit(
                 'scale-changed',
                 getSelectedMonitor()!.deviceId,
-                parseNumberInput($event, getSelectedMonitor()!.mapping.scale ?? 1)
+                parseNumberInput($event, getSelectedMonitor()!.mapping.scale ?? 1),
+                shiftPressed
               )
               " />
         </div>
@@ -626,7 +646,8 @@ onBeforeUnmount(() => {
             emit(
               'offset-x-changed',
               getSelectedMonitor()!.deviceId,
-              parseNumberInput($event, getSelectedMonitor()!.mapping.offsetX ?? 0)
+              parseNumberInput($event, getSelectedMonitor()!.mapping.offsetX ?? 0),
+              shiftPressed
             )
             " />
         </div>
@@ -637,7 +658,8 @@ onBeforeUnmount(() => {
             emit(
               'offset-y-changed',
               getSelectedMonitor()!.deviceId,
-              parseNumberInput($event, getSelectedMonitor()!.mapping.offsetY ?? 0)
+              parseNumberInput($event, getSelectedMonitor()!.mapping.offsetY ?? 0),
+              shiftPressed
             )
             " />
         </div>

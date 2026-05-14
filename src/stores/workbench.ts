@@ -4,6 +4,7 @@ import type {
   AppSettings,
   ConfigurationMonitor,
   ConfigurationRecord,
+  MediaFit,
   MirrorMode,
   MonitorRecord,
   PlaylistRecord,
@@ -18,6 +19,8 @@ import {
   createEmptySettings,
   createPlaylistKey,
   createPlaylistDraft,
+  normalizeAppSettings,
+  normalizeMonitorStripHeightGamma,
   duplicateConfigurationRecord,
   findPlaylistBySourceFolder,
   getPlaylistSidebarCache,
@@ -86,6 +89,48 @@ export interface WorkbenchState {
   playback: PlaybackSession;
   configurationPreviewActive: boolean;
   configurationPreviewId: string | null;
+}
+
+function normalizeMirrorMode(value: string | undefined): MirrorMode {
+  if (value === 'horizontal' || value === 'vertical' || value === 'none') {
+    return value;
+  }
+
+  return 'none';
+}
+
+function normalizeConfigurationMirrorModes(configurations: ConfigurationRecord[]): {
+  configurations: ConfigurationRecord[];
+  changed: boolean;
+} {
+  let changed = false;
+
+  const normalizedConfigurations = configurations.map((configuration) => {
+    const normalizedMonitors = configuration.monitors.map((monitor) => {
+      const normalizedMirror = normalizeMirrorMode(monitor.mapping.mirror as string | undefined);
+      if (monitor.mapping.mirror !== normalizedMirror) {
+        changed = true;
+      }
+
+      return {
+        ...monitor,
+        mapping: {
+          ...monitor.mapping,
+          mirror: normalizedMirror
+        }
+      };
+    });
+
+    return {
+      ...configuration,
+      monitors: normalizedMonitors
+    };
+  });
+
+  return {
+    configurations: normalizedConfigurations,
+    changed
+  };
 }
 
 function sortByName<T extends { name?: string; friendlyName?: string; systemName?: string }>(items: T[]): T[] {
@@ -314,6 +359,8 @@ export function useWorkbench() {
   }
 
   function reconcileSavedConfiguration(previousId: string, savedConfiguration: ConfigurationRecord): void {
+    const previousSelectedMonitorKey = state.selectedConfigurationMonitorKey;
+
     state.configurations = sortByName([
       savedConfiguration,
       ...state.configurations.filter((item) => item.id !== previousId)
@@ -333,6 +380,12 @@ export function useWorkbench() {
 
     if (state.selectedConfigurationId === previousId) {
       state.selectedConfigurationId = savedConfiguration.id;
+      const selectedMonitorStillExists = savedConfiguration.monitors.some(
+        (monitor) => monitor.deviceId === previousSelectedMonitorKey
+      );
+      state.selectedConfigurationMonitorKey = selectedMonitorStillExists
+        ? previousSelectedMonitorKey
+        : savedConfiguration.monitors[0]?.deviceId ?? null;
     }
 
     if (
@@ -380,7 +433,12 @@ export function useWorkbench() {
   }
 
   async function refreshConfigurations(): Promise<void> {
-    state.configurations = sortByName(await listConfigurations());
+    const normalized = normalizeConfigurationMirrorModes(await listConfigurations());
+    state.configurations = sortByName(normalized.configurations);
+
+    if (normalized.changed) {
+      await Promise.all(normalized.configurations.map((configuration) => saveConfiguration(configuration)));
+    }
   }
 
   async function loadPlaylistCandidates(): Promise<void> {
@@ -449,7 +507,7 @@ export function useWorkbench() {
   async function bootstrap(): Promise<void> {
     state.loading = true;
     try {
-      state.settings = await loadAppSettings();
+      state.settings = normalizeAppSettings(await loadAppSettings());
       state.sidebarCollapsed = false;
       state.sidebarExpandedWidth = createSidebarWidth(state.sidebarExpandedWidth);
       state.sidebarWidth = state.sidebarExpandedWidth;
@@ -469,6 +527,17 @@ export function useWorkbench() {
 
   async function persistSettings(): Promise<void> {
     await persistSettingsNow();
+  }
+
+  function updateMonitorStripHeightGamma(value: number): void {
+    const normalized = normalizeMonitorStripHeightGamma(value);
+    if (normalized === state.settings.monitorStripHeightGamma) {
+      return;
+    }
+
+    state.settings.monitorStripHeightGamma = normalized;
+    queueSettingsSave();
+    void syncConfigurationPreviewIfNeeded();
   }
 
   function selectPage(page: WorkbenchPage): void {
@@ -673,6 +742,44 @@ export function useWorkbench() {
       }
 
       mutator(target);
+    });
+    queueConfigurationSave(state.selectedConfigurationId);
+    void syncActivePresentationIfNeeded();
+  }
+
+  function updateConfigurationMappingValue(
+    field: 'rotation' | 'mirror' | 'fit' | 'scale' | 'offsetX' | 'offsetY',
+    value: Rotation | MirrorMode | MediaFit | number,
+    deviceId: string,
+    syncAll = false
+  ): void {
+    mutateSelectedConfiguration((configuration) => {
+      const targets = syncAll
+        ? configuration.monitors
+        : configuration.monitors.filter((monitor) => monitor.deviceId === deviceId);
+
+      for (const monitor of targets) {
+        switch (field) {
+          case 'rotation':
+            monitor.mapping.rotation = value as Rotation;
+            break;
+          case 'mirror':
+            monitor.mapping.mirror = value as MirrorMode;
+            break;
+          case 'fit':
+            monitor.mapping.fit = value as MediaFit;
+            break;
+          case 'scale':
+            monitor.mapping.scale = value as number;
+            break;
+          case 'offsetX':
+            monitor.mapping.offsetX = value as number;
+            break;
+          case 'offsetY':
+            monitor.mapping.offsetY = value as number;
+            break;
+        }
+      }
     });
     queueConfigurationSave(state.selectedConfigurationId);
     void syncActivePresentationIfNeeded();
@@ -1140,9 +1247,14 @@ export function useWorkbench() {
     state.configurationPreviewId = state.configurationPreviewActive ? payload.configurationId : null;
     if (payload.configurationId) {
       state.selectedConfigurationId = payload.configurationId;
-      state.selectedConfigurationMonitorKey =
-        state.configurations.find((item) => item.id === payload.configurationId)?.monitors[0]?.deviceId ??
-        state.selectedConfigurationMonitorKey;
+      const syncedConfiguration = state.configurations.find((item) => item.id === payload.configurationId) ?? null;
+      const selectedMonitorStillExists = syncedConfiguration?.monitors.some(
+        (monitor) => monitor.deviceId === state.selectedConfigurationMonitorKey
+      );
+      if (!selectedMonitorStillExists) {
+        state.selectedConfigurationMonitorKey =
+          syncedConfiguration?.monitors[0]?.deviceId ?? state.selectedConfigurationMonitorKey;
+      }
     }
     if (payload.playlistId) {
       state.selectedPlaylistId = payload.playlistId;
@@ -1393,6 +1505,7 @@ export function useWorkbench() {
     addMonitorToSelectedConfiguration,
     removeMonitorFromSelectedConfiguration,
     updateSelectedConfigurationMonitor,
+    updateConfigurationMappingValue,
     reorderSelectedConfigurationMonitors,
     createPlaylist,
     choosePlaylistSourceFolder,
@@ -1411,6 +1524,7 @@ export function useWorkbench() {
     toggleSidebar,
     setSidebarWidth,
     openSettings,
+    updateMonitorStripHeightGamma,
     handleSidebarSelection,
     handleSidebarListAction,
     handleMenuCommand,

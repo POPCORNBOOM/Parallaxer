@@ -1,5 +1,5 @@
 export type Rotation = 0 | 90 | 180 | 270;
-export type MirrorMode = 'none' | 'horizontal' | 'vertical' | 'both';
+export type MirrorMode = 'none' | 'horizontal' | 'vertical';
 export type MappingMode = 'same-folder-shared-files' | 'same-name-separated-by-shortname';
 export type MediaFit = 'contain' | 'cover' | 'fill' | 'none';
 
@@ -79,6 +79,7 @@ export interface AppSettings {
   monitorHistory: MonitorRecord[];
   recentPlaylistFolders: string[];
   cache: Record<string, unknown>;
+  monitorStripHeightGamma: number;
   lastSelectedPage?: string;
   lastSelectedEntityId?: string;
 }

@@ -13,9 +13,40 @@ import { t } from '../i18n';
 
 export const CONFIGURATION_PREVIEW_RELATIVE_PATH = '__configuration_preview__';
 export const PLAYLIST_SIDEBAR_CACHE_KEY = 'playlistSidebar';
+export const MONITOR_STRIP_REFERENCE_HEIGHT = 216;
+export const MONITOR_STRIP_MINIMUM_MAPPED_HEIGHT = 86;
+export const DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA = 2.6;
+export const MIN_MONITOR_STRIP_HEIGHT_GAMMA = 0.4;
+export const MAX_MONITOR_STRIP_HEIGHT_GAMMA = 6;
+export const MONITOR_STRIP_HEIGHT_GAMMA_STEP = 0.05;
 
 export interface PlaylistSidebarCacheEntry {
   favorite?: boolean;
+}
+
+export function normalizeMonitorStripHeightGamma(value: unknown): number {
+  const parsed =
+    typeof value === 'number' ? value : Number.parseFloat(typeof value === 'string' ? value : '');
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA;
+  }
+
+  return Math.min(MAX_MONITOR_STRIP_HEIGHT_GAMMA, Math.max(MIN_MONITOR_STRIP_HEIGHT_GAMMA, parsed));
+}
+
+export function mapMonitorStripHeight(normalizedHeight: number, gamma: number): number {
+  const normalized = Math.min(Math.max(normalizedHeight, 0), 1);
+  const safeGamma = normalizeMonitorStripHeightGamma(gamma);
+  const denominator = 1 - Math.exp(-safeGamma);
+  const eased =
+    denominator > 0
+      ? (1 - Math.exp(-safeGamma * normalized)) / denominator
+      : normalized;
+
+  return (
+    MONITOR_STRIP_MINIMUM_MAPPED_HEIGHT +
+    (MONITOR_STRIP_REFERENCE_HEIGHT - MONITOR_STRIP_MINIMUM_MAPPED_HEIGHT) * eased
+  );
 }
 
 function normalizePath(value: string): string {
@@ -103,7 +134,22 @@ export function createEmptySettings(): AppSettings {
     monitorOverrides: {},
     monitorHistory: [],
     recentPlaylistFolders: [],
-    cache: {}
+    cache: {},
+    monitorStripHeightGamma: DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA
+  };
+}
+
+export function normalizeAppSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
+  const defaults = createEmptySettings();
+
+  return {
+    ...defaults,
+    ...value,
+    monitorOverrides: value?.monitorOverrides ?? defaults.monitorOverrides,
+    monitorHistory: value?.monitorHistory ?? defaults.monitorHistory,
+    recentPlaylistFolders: value?.recentPlaylistFolders ?? defaults.recentPlaylistFolders,
+    cache: value?.cache ?? defaults.cache,
+    monitorStripHeightGamma: normalizeMonitorStripHeightGamma(value?.monitorStripHeightGamma)
   };
 }
 

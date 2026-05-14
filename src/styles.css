@@ -246,6 +246,37 @@ input[type='checkbox']:disabled {
   transition: color 140ms ease, opacity 140ms ease;
 }
 
+[data-tooltip] {
+  --tooltip-hit-area: 1;
+}
+
+.app-tooltip-layer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  min-width: max-content;
+  max-width: min(320px, 70vw);
+  padding: 8px 10px;
+  border-radius: var(--radius-field);
+  background: rgba(24, 25, 29, 0.98);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px var(--color-divider-strong);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 2147483647;
+  white-space: nowrap;
+}
+
+.app-tooltip-layer.open {
+  opacity: 1;
+}
+
 .titlebar-menu {
   position: relative;
 }

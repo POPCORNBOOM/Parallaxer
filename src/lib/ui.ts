@@ -6,6 +6,7 @@ import type {
   PlaylistRecord
 } from '../types';
 import { getLocale, t } from '../i18n';
+import { mapMonitorStripHeight } from './domain';
 
 export function formatPathLeaf(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/g, '');
@@ -104,10 +105,8 @@ export function buildMonitorTransform(
   const scale = mapping.scale ?? 1;
   const offsetX = (mapping.offsetX ?? 0) * offsetMultiplier;
   const offsetY = (mapping.offsetY ?? 0) * offsetMultiplier;
-  const scaleX =
-    (mapping.mirror === 'horizontal' || mapping.mirror === 'both' ? -1 : 1) * scale;
-  const scaleY =
-    (mapping.mirror === 'vertical' || mapping.mirror === 'both' ? -1 : 1) * scale;
+  const scaleX = (mapping.mirror === 'horizontal' ? -1 : 1) * scale;
+  const scaleY = (mapping.mirror === 'vertical' ? -1 : 1) * scale;
 
   return `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
 }
@@ -213,3 +212,14 @@ export function buildSharedSliceSourceRect(args: {
 export function isQuarterTurnRotation(rotation: number): boolean {
   return rotation === 90 || rotation === 270;
 }
+
+export {
+  DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA,
+  MAX_MONITOR_STRIP_HEIGHT_GAMMA,
+  MIN_MONITOR_STRIP_HEIGHT_GAMMA,
+  MONITOR_STRIP_HEIGHT_GAMMA_STEP,
+  MONITOR_STRIP_MINIMUM_MAPPED_HEIGHT,
+  MONITOR_STRIP_REFERENCE_HEIGHT,
+  mapMonitorStripHeight,
+  normalizeMonitorStripHeightGamma
+} from './domain';
