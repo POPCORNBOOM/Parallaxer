@@ -14,6 +14,9 @@ export interface PresentationWindowConfig {
   width: number;
   height: number;
   focus: boolean;
+  fullscreen: boolean;
+  scaleFactor: number;
+  preview: boolean;
 }
 
 export function getMonitorByDeviceId(
@@ -28,23 +31,33 @@ export function buildPresentationWindowConfig(
   monitor: MonitorRecord,
   focus: boolean
 ): PresentationWindowConfig {
+  const scaleFactor = monitor.scaleFactor && monitor.scaleFactor > 0 ? monitor.scaleFactor : 1;
+  const logicalX = Math.round(monitor.position.x / scaleFactor);
+  const logicalY = Math.round(monitor.position.y / scaleFactor);
+  const logicalWidth = Math.round(monitor.size.width / scaleFactor);
+  const logicalHeight = Math.round(monitor.size.height / scaleFactor);
+  const preview = display.relativePath === '__configuration_preview__';
+
   return {
     label: display.windowLabel,
-    url: `index.html?view=presentation&display=${encodeURIComponent(display.shortName)}`,
-    x: monitor.position.x,
-    y: monitor.position.y,
-    width: monitor.size.width,
-    height: monitor.size.height,
-    focus
+    url: `index.html?view=presentation&display=${encodeURIComponent(display.windowLabel)}`,
+    x: logicalX,
+    y: logicalY,
+    width: logicalWidth,
+    height: logicalHeight,
+    focus,
+    fullscreen: !preview,
+    scaleFactor,
+    preview
   };
 }
 
 export function buildPresentationWindowConfigs(args: {
   payload: PresentationPayload;
   monitors: MonitorRecord[];
-  focusedShortName?: string;
+  focusedWindowLabel?: string;
 }): PresentationWindowConfig[] {
-  const { payload, monitors, focusedShortName } = args;
+  const { payload, monitors, focusedWindowLabel } = args;
 
   return payload.displays.flatMap((display) => {
     const monitor = getMonitorByDeviceId(monitors, display.deviceId);
@@ -53,7 +66,11 @@ export function buildPresentationWindowConfigs(args: {
     }
 
     return [
-      buildPresentationWindowConfig(display, monitor, display.shortName === (focusedShortName ?? payload.displays[0]?.shortName))
+      buildPresentationWindowConfig(
+        display,
+        monitor,
+        display.windowLabel === (focusedWindowLabel ?? payload.displays[0]?.windowLabel)
+      )
     ];
   });
 }

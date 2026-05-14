@@ -1,4 +1,4 @@
-import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
+import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
 import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { ConfigurationRecord, MonitorRecord, PlaylistRecord, PresentationPayload } from '../types';
 import {
@@ -11,6 +11,7 @@ import { buildPresentationWindowConfigs } from './presentation';
 import { startPresentation, stopPresentation, syncPresentation } from './tauri';
 
 export const PRESENTATION_CONTROL_EVENT = 'presentation:control';
+export const PRESENTATION_VIDEO_EVENT = 'presentation:video';
 
 export interface PlaybackSession {
   active: boolean;
@@ -27,6 +28,7 @@ export interface PlaybackContext {
 }
 
 export type PlaybackControl = 'previous' | 'next' | 'stop';
+export type PresentationVideoSignal = 'ready' | 'ended' | 'play' | 'restart' | 'toggle-pause';
 
 export function createPlaybackSession(): PlaybackSession {
   return {
@@ -97,12 +99,15 @@ export async function openPresentationWindows(payload: PresentationPayload, moni
 
             settled = true;
             try {
-              await window.setPosition(new PhysicalPosition(config.x, config.y));
-              await window.setSize(new PhysicalSize(config.width, config.height));
-              await window.setFullscreen(true);
+              await window.setPosition(new LogicalPosition(config.x, config.y));
+              await window.setSize(new LogicalSize(config.width, config.height));
+              if (config.fullscreen) {
+                await window.setFullscreen(true);
+              }
               if (config.focus) {
                 await window.setFocus();
               }
+              await logPresentationWindowDiagnostics(window, config);
               resolve();
             } catch (error) {
               reject(error);
@@ -123,14 +128,58 @@ export async function openPresentationWindows(payload: PresentationPayload, moni
       }
 
       await window.show();
-      await window.setPosition(new PhysicalPosition(config.x, config.y));
-      await window.setSize(new PhysicalSize(config.width, config.height));
-      await window.setFullscreen(true);
+      await window.setFullscreen(false);
+      await window.setPosition(new LogicalPosition(config.x, config.y));
+      await window.setSize(new LogicalSize(config.width, config.height));
+      if (config.fullscreen) {
+        await window.setFullscreen(true);
+      }
       if (config.focus) {
         await window.setFocus();
       }
+      await logPresentationWindowDiagnostics(window, config);
     })
   );
+}
+
+async function logPresentationWindowDiagnostics(
+  window: WebviewWindow,
+  config: {
+    label: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scaleFactor: number;
+    preview: boolean;
+  }
+): Promise<void> {
+  const [outerPosition, outerSize, innerSize, scaleFactor, isFullscreen] = await Promise.all([
+    window.outerPosition(),
+    window.outerSize(),
+    window.innerSize(),
+    window.scaleFactor(),
+    window.isFullscreen()
+  ]);
+
+  console.info('[presentation-window]', {
+    label: config.label,
+    preview: config.preview,
+    requested: {
+      x: config.x,
+      y: config.y,
+      width: config.width,
+      height: config.height,
+      scaleFactor: config.scaleFactor
+    },
+    actual: {
+      outerPosition,
+      outerSize,
+      innerSize,
+      scaleFactor,
+      isFullscreen
+    }
+  });
 }
 
 export async function startPlayback(

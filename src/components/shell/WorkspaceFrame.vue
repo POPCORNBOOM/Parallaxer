@@ -6,6 +6,8 @@ defineProps<{
   actions: SidebarAction[];
   statusMessage: string;
   errorMessage: string;
+  lockBodyScroll?: boolean;
+  flushBody?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +17,10 @@ const emit = defineEmits<{
 function iconClasses(icon: string): string[] {
   const tokens = icon.split(/\s+/).filter(Boolean);
   return tokens.includes('mdi') ? tokens : ['mdi', ...tokens];
+}
+
+function iconStyle(color?: string): { color?: string } | undefined {
+  return color ? { color } : undefined;
 }
 </script>
 
@@ -27,12 +33,12 @@ function iconClasses(icon: string): string[] {
       <div class="workspace-actions" :class="{ empty: actions.length === 0 }">
         <button v-for="action in actions" :key="action.key ?? action.icon" class="workspace-action" type="button"
           :title="action.hoverTip" @click="action.key && emit('action', action.key)">
-          <i :class="iconClasses(action.icon)" />
+          <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
         </button>
       </div>
     </header>
 
-    <div class="workspace-body">
+    <div class="workspace-body" :class="{ locked: lockBodyScroll, flush: flushBody }">
       <slot />
     </div>
 

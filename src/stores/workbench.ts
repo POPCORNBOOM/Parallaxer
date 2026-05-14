@@ -11,13 +11,23 @@ import type {
 } from '../types';
 import {
   buildConfigurationPreviewPayload,
+  createCachedPlaylistRecord,
   createConfigurationDraft,
   createConfigurationMonitor,
   createEmptySettings,
+  createPlaylistKey,
   createPlaylistDraft,
+  duplicateConfigurationRecord,
+  findPlaylistBySourceFolder,
+  getPlaylistSidebarCache,
   isConfigurationPreviewPayload,
+  mergeMonitorHistory,
   normalizeConfigurationMonitorShortName,
+  normalizePlaylistFolder,
   renumberConfigurationMonitors,
+  removeRecentPlaylistFolder,
+  setPlaylistSidebarCache,
+  upsertPlaylistRecord,
   upsertRecentPlaylistFolder,
   validateConfiguration,
   validatePlaylist
@@ -31,6 +41,7 @@ import {
   createSidebarWidth
 } from '../lib/sidebar';
 import {
+  buildPlaybackPayload,
   createPlaybackSession,
   openPresentationWindows,
   startPlayback,
@@ -78,6 +89,8 @@ export interface WorkbenchState {
 
 function sortByName<T extends { name?: string; friendlyName?: string; systemName?: string }>(items: T[]): T[] {
   return [...items].sort((left, right) =>
+    Number(Boolean((right as { favorite?: boolean }).favorite)) -
+      Number(Boolean((left as { favorite?: boolean }).favorite)) ||
     String(left.name ?? left.friendlyName ?? left.systemName ?? '').localeCompare(
       String(right.name ?? right.friendlyName ?? right.systemName ?? '')
     )
@@ -86,6 +99,12 @@ function sortByName<T extends { name?: string; friendlyName?: string; systemName
 
 export function useWorkbench() {
   const defaultSidebarWidth = 264;
+  const autosaveDebounceMs = 320;
+  let settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let configurationSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let playlistSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingConfigurationSaveId: string | null = null;
+  const pendingPlaylistSaveIds = new Set<string>();
 
   const state = reactive<WorkbenchState>({
     monitors: [],
@@ -136,7 +155,8 @@ export function useWorkbench() {
 
   const workspaceTitle = computed(() => {
     if (state.playback.active && !state.configurationPreviewActive) {
-      return 'Presentation Mode';
+      const playlist = state.playlists.find((item) => item.id === state.playback.playlistId) ?? null;
+      return playlist?.name ? `Presentation Mode - ${playlist.name}` : 'Presentation Mode';
     }
 
     if (state.currentPage === 'monitor') {
@@ -161,7 +181,22 @@ export function useWorkbench() {
 
   const workspaceActions = computed<SidebarAction[]>(() => {
     if (state.playback.active && !state.configurationPreviewActive) {
-      return [];
+      return [
+        { key: 'presentation-previous', hoverTip: 'Previous', icon: 'mdi-chevron-left' },
+        { key: 'presentation-stop', hoverTip: 'Stop', icon: 'mdi-stop' },
+        { key: 'presentation-next', hoverTip: 'Next', icon: 'mdi-chevron-right' }
+      ];
+    }
+
+    if (state.currentPage === 'monitor' && selectedMonitor.value && !selectedMonitor.value.connected) {
+      return [
+        {
+          key: 'forget-monitor',
+          hoverTip: 'Forget monitor',
+          icon: 'mdi-close',
+          color: 'var(--color-danger-text)'
+        }
+      ];
     }
 
     if (state.currentPage === 'configuration' && selectedConfiguration.value) {
@@ -171,6 +206,7 @@ export function useWorkbench() {
           hoverTip: state.configurationPreviewActive ? 'Stop preview' : 'Preview configuration',
           icon: state.configurationPreviewActive ? 'mdi-eye-off-outline' : 'mdi-monitor-eye'
         },
+        { key: 'duplicate-configuration', hoverTip: 'Duplicate configuration', icon: 'mdi-content-copy' },
         { key: 'save-configuration', hoverTip: 'Save configuration', icon: 'mdi-content-save-outline' }
       ];
     }
@@ -198,15 +234,146 @@ export function useWorkbench() {
     clearError();
   }
 
+  async function persistSettingsNow(): Promise<void> {
+    await saveAppSettings(state.settings);
+  }
+
+  function queueSettingsSave(): void {
+    if (settingsSaveTimer) {
+      clearTimeout(settingsSaveTimer);
+    }
+
+    settingsSaveTimer = setTimeout(() => {
+      settingsSaveTimer = null;
+      void persistSettingsNow().catch((error) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
+    }, autosaveDebounceMs);
+  }
+
+  async function persistConfigurationDraftById(configurationId: string | null): Promise<void> {
+    if (!configurationId) {
+      return;
+    }
+
+    const configuration = state.configurations.find((item) => item.id === configurationId) ?? null;
+    if (!configuration) {
+      return;
+    }
+
+    const savedConfiguration = await saveConfiguration(configuration);
+    reconcileSavedConfiguration(configurationId, savedConfiguration);
+  }
+
+  function queueConfigurationSave(configurationId: string | null): void {
+    pendingConfigurationSaveId = configurationId;
+    if (configurationSaveTimer) {
+      clearTimeout(configurationSaveTimer);
+    }
+
+    configurationSaveTimer = setTimeout(() => {
+      const targetId = pendingConfigurationSaveId;
+      configurationSaveTimer = null;
+      pendingConfigurationSaveId = null;
+      void persistConfigurationDraftById(targetId).catch((error) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
+    }, autosaveDebounceMs);
+  }
+
+  async function persistQueuedPlaylistDrafts(): Promise<void> {
+    const playlistIds = [...pendingPlaylistSaveIds];
+    pendingPlaylistSaveIds.clear();
+    await Promise.all(
+      playlistIds.map(async (playlistId) => {
+        const playlist = state.playlists.find((item) => item.id === playlistId) ?? null;
+        await persistPlaylistDraft(playlist);
+      })
+    );
+  }
+
+  function queuePlaylistSave(playlistId: string | null): void {
+    if (!playlistId) {
+      return;
+    }
+
+    pendingPlaylistSaveIds.add(playlistId);
+    if (playlistSaveTimer) {
+      clearTimeout(playlistSaveTimer);
+    }
+
+    playlistSaveTimer = setTimeout(() => {
+      playlistSaveTimer = null;
+      void persistQueuedPlaylistDrafts().catch((error) => {
+        setError(error instanceof Error ? error.message : String(error));
+      });
+    }, autosaveDebounceMs);
+  }
+
+  function reconcileSavedConfiguration(previousId: string, savedConfiguration: ConfigurationRecord): void {
+    state.configurations = sortByName([
+      savedConfiguration,
+      ...state.configurations.filter((item) => item.id !== previousId)
+    ]);
+
+    if (savedConfiguration.id === previousId) {
+      return;
+    }
+
+    const affectedPlaylistIds: string[] = [];
+    for (const playlist of state.playlists) {
+      if (playlist.configurationId === previousId) {
+        playlist.configurationId = savedConfiguration.id;
+        affectedPlaylistIds.push(playlist.id);
+      }
+    }
+
+    if (state.selectedConfigurationId === previousId) {
+      state.selectedConfigurationId = savedConfiguration.id;
+    }
+
+    if (
+      state.settings.lastSelectedPage === 'configuration' &&
+      state.settings.lastSelectedEntityId === previousId
+    ) {
+      state.settings.lastSelectedEntityId = savedConfiguration.id;
+      queueSettingsSave();
+    }
+
+    if (state.playback.configurationId === previousId) {
+      state.playback.configurationId = savedConfiguration.id;
+    }
+
+    if (state.playback.payload?.configurationId === previousId) {
+      state.playback.payload = {
+        ...state.playback.payload,
+        configurationId: savedConfiguration.id
+      };
+    }
+
+    if (state.configurationPreviewId === previousId) {
+      state.configurationPreviewId = savedConfiguration.id;
+    }
+
+    affectedPlaylistIds.forEach((playlistId) => queuePlaylistSave(playlistId));
+  }
+
   async function refreshMonitors(): Promise<void> {
     const monitors = await listMonitors();
     const overrides = state.settings.monitorOverrides;
-    state.monitors = sortByName(
-      monitors.map((monitor) => ({
-        ...monitor,
-        friendlyName: overrides[monitor.deviceId]?.friendlyName || monitor.friendlyName
-      }))
-    );
+    const mergedMonitors = mergeMonitorHistory({
+      currentMonitors: monitors,
+      historyMonitors: state.settings.monitorHistory ?? [],
+      monitorOverrides: overrides
+    });
+
+    state.settings.monitorHistory = mergedMonitors.map((monitor) => ({
+      ...monitor,
+      connected: false
+    }));
+
+    state.monitors = sortByName(mergedMonitors);
+    queueSettingsSave();
   }
 
   async function refreshConfigurations(): Promise<void> {
@@ -215,8 +382,23 @@ export function useWorkbench() {
 
   async function loadPlaylistCandidates(): Promise<void> {
     const folders = state.settings.recentPlaylistFolders ?? [];
-    const playlists = await Promise.all(folders.map((folder) => readPlaylist(folder)));
-    state.playlists = sortByName(playlists.filter(Boolean) as PlaylistRecord[]);
+    const sidebarCache = getPlaylistSidebarCache(state.settings);
+    const playlists = await Promise.all(
+      folders.map(async (folder) => {
+        const playlist = await readPlaylist(folder);
+        const normalizedFolder = folder.replace(/\\/g, '/').replace(/\/+$/g, '');
+        const cachedPlaylist = playlist
+          ? { ...playlist, id: createPlaylistKey(normalizedFolder), sourceFolder: normalizedFolder }
+          : createCachedPlaylistRecord(normalizedFolder);
+        const cacheEntry = sidebarCache[normalizedFolder];
+
+        return {
+          ...cachedPlaylist,
+          favorite: cacheEntry?.favorite === true
+        } as PlaylistRecord & { favorite?: boolean };
+      })
+    );
+    state.playlists = sortByName(playlists as PlaylistRecord[]);
   }
 
   function restoreSavedSelection(): void {
@@ -234,8 +416,12 @@ export function useWorkbench() {
           null;
         return;
       case 'playlist':
-        state.selectedPlaylistId =
-          savedId && state.playlists.some((item) => item.id === savedId) ? savedId : null;
+      state.selectedPlaylistId =
+          savedId &&
+          state.playlists.some((item) => item.id === savedId || createPlaylistKey(item.sourceFolder) === savedId)
+            ? (state.playlists.find((item) => item.id === savedId || createPlaylistKey(item.sourceFolder) === savedId)
+                ?.id ?? null)
+            : null;
         return;
       default:
         return;
@@ -279,7 +465,7 @@ export function useWorkbench() {
   }
 
   async function persistSettings(): Promise<void> {
-    await saveAppSettings(state.settings);
+    await persistSettingsNow();
   }
 
   function selectPage(page: WorkbenchPage): void {
@@ -289,6 +475,7 @@ export function useWorkbench() {
     state.currentPage = page;
     state.settings.lastSelectedPage = page;
     ensureSelection();
+    queueSettingsSave();
   }
 
   function selectMonitor(deviceId: string): void {
@@ -297,6 +484,7 @@ export function useWorkbench() {
     state.selectedMonitorId = deviceId;
     state.settings.lastSelectedPage = 'monitor';
     state.settings.lastSelectedEntityId = deviceId;
+    queueSettingsSave();
   }
 
   function selectConfiguration(id: string): void {
@@ -309,6 +497,7 @@ export function useWorkbench() {
       state.configurations.find((configuration) => configuration.id === id)?.monitors[0]?.deviceId ?? null;
     state.settings.lastSelectedPage = 'configuration';
     state.settings.lastSelectedEntityId = id;
+    queueSettingsSave();
   }
 
   function selectConfigurationMonitor(deviceId: string): void {
@@ -322,6 +511,7 @@ export function useWorkbench() {
     state.selectedPlaylistId = id;
     state.settings.lastSelectedPage = 'playlist';
     state.settings.lastSelectedEntityId = id;
+    queueSettingsSave();
   }
 
   async function updateMonitorFriendlyName(value: string): Promise<void> {
@@ -332,8 +522,43 @@ export function useWorkbench() {
 
     monitor.friendlyName = value;
     state.settings.monitorOverrides[monitor.deviceId] = { friendlyName: value };
-    await persistSettings();
+    queueSettingsSave();
     setStatus('Monitor label saved');
+  }
+
+  function forgetMonitor(deviceId: string): void {
+    const monitor = state.monitors.find((item) => item.deviceId === deviceId);
+    if (!monitor || monitor.connected) {
+      return;
+    }
+
+    state.monitors = state.monitors.filter((item) => item.deviceId !== deviceId);
+    state.settings.monitorHistory = (state.settings.monitorHistory ?? []).filter(
+      (item) => item.deviceId !== deviceId
+    );
+    delete state.settings.monitorOverrides[deviceId];
+
+    if (state.selectedMonitorId === deviceId) {
+      state.selectedMonitorId = state.monitors[0]?.deviceId ?? null;
+    }
+
+    queueSettingsSave();
+    ensureSelection();
+    setStatus('Monitor forgotten');
+  }
+
+  function updateSelectedConfigurationName(value: string): void {
+    mutateSelectedConfiguration((configuration) => {
+      configuration.name = value;
+    });
+    queueConfigurationSave(state.selectedConfigurationId);
+  }
+
+  function updateSelectedConfigurationDescription(value: string): void {
+    mutateSelectedConfiguration((configuration) => {
+      configuration.description = value;
+    });
+    queueConfigurationSave(state.selectedConfigurationId);
   }
 
   function mutateSelectedConfiguration(mutator: (configuration: ConfigurationRecord) => void): void {
@@ -350,6 +575,7 @@ export function useWorkbench() {
     configuration.name = `Configuration ${state.configurations.length + 1}`;
     state.configurations.unshift(configuration);
     selectConfiguration(configuration.id);
+    queueConfigurationSave(configuration.id);
   }
 
   async function saveSelectedConfiguration(): Promise<void> {
@@ -358,17 +584,26 @@ export function useWorkbench() {
       return;
     }
 
-    const errors = validateConfiguration(configuration);
-    if (errors.length > 0) {
-      setError(errors[0]);
+    if (configurationSaveTimer) {
+      clearTimeout(configurationSaveTimer);
+      configurationSaveTimer = null;
+    }
+    pendingConfigurationSaveId = null;
+    await persistConfigurationDraftById(configuration.id);
+    await syncActivePresentationIfNeeded();
+    setStatus('Configuration saved');
+  }
+
+  async function toggleConfigurationFavorite(id: string): Promise<void> {
+    const configuration = state.configurations.find((item) => item.id === id);
+    if (!configuration) {
       return;
     }
 
-    await saveConfiguration(configuration);
-    await refreshConfigurations();
-    selectConfiguration(configuration.id);
-    await syncConfigurationPreviewIfNeeded();
-    setStatus('Configuration saved');
+    configuration.favorite = !configuration.favorite;
+    state.configurations = sortByName(state.configurations);
+    queueConfigurationSave(configuration.id);
+    setStatus(configuration.favorite ? 'Configuration favorited' : 'Configuration unfavorited');
   }
 
   async function deleteConfigurationById(id: string): Promise<void> {
@@ -377,6 +612,19 @@ export function useWorkbench() {
     state.selectedConfigurationId = state.configurations[0]?.id ?? null;
     state.selectedConfigurationMonitorKey = state.configurations[0]?.monitors[0]?.deviceId ?? null;
     setStatus('Configuration deleted');
+  }
+
+  function duplicateSelectedConfiguration(): void {
+    const configuration = selectedConfiguration.value;
+    if (!configuration) {
+      return;
+    }
+
+    const duplicated = duplicateConfigurationRecord(configuration);
+    state.configurations = sortByName([duplicated, ...state.configurations]);
+    selectConfiguration(duplicated.id);
+    queueConfigurationSave(duplicated.id);
+    setStatus('Configuration duplicated');
   }
 
   function addMonitorToSelectedConfiguration(deviceId: string): void {
@@ -396,7 +644,8 @@ export function useWorkbench() {
       configuration.monitors = renumberConfigurationMonitors(configuration.monitors);
       state.selectedConfigurationMonitorKey = deviceId;
     });
-    void syncConfigurationPreviewIfNeeded();
+    queueConfigurationSave(state.selectedConfigurationId);
+    void syncActivePresentationIfNeeded();
   }
 
   function removeMonitorFromSelectedConfiguration(deviceId: string): void {
@@ -406,7 +655,8 @@ export function useWorkbench() {
       );
       state.selectedConfigurationMonitorKey = configuration.monitors[0]?.deviceId ?? null;
     });
-    void syncConfigurationPreviewIfNeeded();
+    queueConfigurationSave(state.selectedConfigurationId);
+    void syncActivePresentationIfNeeded();
   }
 
   function updateSelectedConfigurationMonitor(
@@ -421,7 +671,29 @@ export function useWorkbench() {
 
       mutator(target);
     });
-    void syncConfigurationPreviewIfNeeded();
+    queueConfigurationSave(state.selectedConfigurationId);
+    void syncActivePresentationIfNeeded();
+  }
+
+  function reorderSelectedConfigurationMonitors(orderedDeviceIds: string[]): void {
+    mutateSelectedConfiguration((configuration) => {
+      const byId = new Map(configuration.monitors.map((monitor) => [monitor.deviceId, monitor]));
+      const reordered = orderedDeviceIds
+        .map((deviceId) => byId.get(deviceId))
+        .filter((monitor): monitor is ConfigurationMonitor => Boolean(monitor))
+        .map((monitor, index) => ({
+          ...monitor,
+          order: index
+        }));
+
+      if (reordered.length !== configuration.monitors.length) {
+        return;
+      }
+
+      configuration.monitors = reordered;
+    });
+    queueConfigurationSave(state.selectedConfigurationId);
+    void syncActivePresentationIfNeeded();
   }
 
   function createPlaylist(): PlaylistRecord {
@@ -434,6 +706,55 @@ export function useWorkbench() {
 
   function ensureEditablePlaylist(): PlaylistRecord {
     return selectedPlaylist.value ?? createPlaylist();
+  }
+
+  function isTransientPlaylistDraft(playlist: PlaylistRecord | null): boolean {
+    return Boolean(playlist && !playlist.sourceFolder.trim());
+  }
+
+  async function persistPlaylistDraft(playlist: PlaylistRecord | null): Promise<void> {
+    if (!playlist?.sourceFolder.trim()) {
+      return;
+    }
+
+    playlist.id = createPlaylistKey(playlist.sourceFolder);
+    playlist.playlistFilePath = `${playlist.sourceFolder.replace(/\\/g, '/').replace(/\/+$/g, '')}/playlist.json`;
+    await savePlaylist(playlist);
+  }
+
+  async function updateSelectedPlaylistName(value: string): Promise<void> {
+    const playlist = selectedPlaylist.value;
+    if (!playlist) {
+      return;
+    }
+
+    playlist.name = value;
+    queuePlaylistSave(playlist.id);
+  }
+
+  async function updateSelectedPlaylistConfiguration(configurationId: string): Promise<void> {
+    const playlist = selectedPlaylist.value;
+    if (!playlist) {
+      return;
+    }
+
+    playlist.configurationId = configurationId;
+    await regeneratePlaylist(playlist);
+  }
+
+  async function updateSelectedPlaylistEntryVisibility(
+    fileName: string,
+    visibility: boolean
+  ): Promise<void> {
+    const playlist = selectedPlaylist.value;
+    const entry = playlist?.entries.find((item) => item.fileName === fileName);
+    if (!playlist || !entry) {
+      return;
+    }
+
+    entry.visibility = visibility;
+    queuePlaylistSave(playlist.id);
+    setStatus('Playlist item visibility updated');
   }
 
   function getConfigurationById(id: string | null | undefined): ConfigurationRecord | null {
@@ -485,17 +806,39 @@ export function useWorkbench() {
   }
 
   async function choosePlaylistSourceFolder(): Promise<void> {
-    const playlist = ensureEditablePlaylist();
-
     const folder = await choosePlaylistFolder();
     if (!folder) {
       return;
     }
 
-    playlist.sourceFolder = folder;
-    playlist.playlistFilePath = `${folder.replace(/\\/g, '/')}/playlist.json`;
-    state.settings.recentPlaylistFolders = upsertRecentPlaylistFolder(state.settings.recentPlaylistFolders, folder);
-    await persistSettings();
+    const normalizedFolder = normalizePlaylistFolder(folder);
+    const existingPlaylist = findPlaylistBySourceFolder(state.playlists, normalizedFolder);
+    if (existingPlaylist) {
+      selectPlaylist(existingPlaylist.id);
+      setStatus('Playlist folder opened');
+      return;
+    }
+
+    const persistedPlaylist = await readPlaylist(normalizedFolder);
+    const basePlaylist =
+      persistedPlaylist ??
+      (isTransientPlaylistDraft(selectedPlaylist.value)
+        ? selectedPlaylist.value
+        : createCachedPlaylistRecord(normalizedFolder));
+    const playlist = {
+      ...basePlaylist,
+      id: createPlaylistKey(normalizedFolder),
+      sourceFolder: normalizedFolder,
+      playlistFilePath: `${normalizedFolder}/playlist.json`
+    } as PlaylistRecord;
+
+    state.playlists = sortByName(upsertPlaylistRecord(state.playlists, playlist));
+    state.settings.recentPlaylistFolders = upsertRecentPlaylistFolder(
+      state.settings.recentPlaylistFolders,
+      normalizedFolder
+    );
+    queueSettingsSave();
+    selectPlaylist(playlist.id);
     await regenerateSelectedPlaylist();
   }
 
@@ -505,19 +848,21 @@ export function useWorkbench() {
     }
 
     const configuration = getConfigurationById(playlist.configurationId);
-    const shortNames = configuration?.monitors.map((monitor) => monitor.shortName) ?? [];
+    const monitors = configuration?.monitors ?? [];
     if (!playlist.sourceFolder.trim()) {
       playlist.entries = [];
       return;
     }
 
-    if (shortNames.length === 0) {
+    if (monitors.length === 0) {
       playlist.entries = [];
+      queuePlaylistSave(playlist.id);
       setStatus('Select a configuration with at least one monitor to generate entries');
       return;
     }
 
-    playlist.entries = await scanPlaylistFolder(playlist.sourceFolder, shortNames, playlist.entries);
+    playlist.entries = await scanPlaylistFolder(playlist.sourceFolder, monitors, playlist.entries);
+    queuePlaylistSave(playlist.id);
     setStatus('Playlist regenerated');
   }
 
@@ -539,26 +884,64 @@ export function useWorkbench() {
       return;
     }
 
-    const configuration = getConfigurationById(playlist.configurationId);
-    const connectedMonitorIds = new Set(state.monitors.filter((item) => item.connected).map((item) => item.deviceId));
-    const errors = validatePlaylist(playlist, configuration, connectedMonitorIds);
-    if (errors.length > 0) {
-      setError(errors[0]);
-      return;
+    if (playlistSaveTimer) {
+      clearTimeout(playlistSaveTimer);
+      playlistSaveTimer = null;
     }
-
-    await savePlaylist(playlist);
+    pendingPlaylistSaveIds.delete(playlist.id);
+    await persistPlaylistDraft(playlist);
     state.settings.recentPlaylistFolders = upsertRecentPlaylistFolder(
       state.settings.recentPlaylistFolders,
       playlist.sourceFolder
     );
-    await persistSettings();
+    queueSettingsSave();
     await loadPlaylistCandidates();
-    selectPlaylist(playlist.id);
+    selectPlaylist(createPlaylistKey(playlist.sourceFolder));
     setStatus('Playlist saved');
   }
 
+  async function togglePlaylistFavorite(id: string): Promise<void> {
+    const playlist = state.playlists.find((item) => item.id === id);
+    if (!playlist) {
+      return;
+    }
+
+    const folder = playlist.sourceFolder.replace(/\\/g, '/').replace(/\/+$/g, '');
+    const cache = getPlaylistSidebarCache(state.settings);
+    cache[folder] = {
+      favorite: !Boolean((playlist as PlaylistRecord & { favorite?: boolean }).favorite)
+    };
+    setPlaylistSidebarCache(state.settings, cache);
+    (playlist as PlaylistRecord & { favorite?: boolean }).favorite = cache[folder]?.favorite === true;
+    state.playlists = sortByName(state.playlists);
+    queueSettingsSave();
+    setStatus(cache[folder]?.favorite ? 'Playlist favorited' : 'Playlist unfavorited');
+  }
+
+  async function removePlaylistFromSidebar(id: string): Promise<void> {
+    const playlist = state.playlists.find((item) => item.id === id);
+    if (!playlist) {
+      return;
+    }
+
+    const folder = playlist.sourceFolder;
+    state.settings.recentPlaylistFolders = removeRecentPlaylistFolder(
+      state.settings.recentPlaylistFolders,
+      folder
+    );
+    const cache = getPlaylistSidebarCache(state.settings);
+    delete cache[folder.replace(/\\/g, '/').replace(/\/+$/g, '')];
+    setPlaylistSidebarCache(state.settings, cache);
+    queueSettingsSave();
+    state.playlists = state.playlists.filter((item) => item.id !== id);
+    if (state.selectedPlaylistId === id) {
+      state.selectedPlaylistId = state.playlists[0]?.id ?? null;
+    }
+    setStatus('Playlist removed from sidebar');
+  }
+
   async function playSelectedPlaylist(): Promise<void> {
+    await flushPendingPersistence();
     const context = buildPlaybackContextFromSelection();
     if (!context) {
       setError('Select a playlist and configuration first');
@@ -572,6 +955,9 @@ export function useWorkbench() {
       return;
     }
 
+    state.selectedConfigurationId = context.configuration.id;
+    state.selectedConfigurationMonitorKey =
+      context.configuration.monitors[0]?.deviceId ?? state.selectedConfigurationMonitorKey;
     const payload = await startPlayback(state.playback, context, 0);
     setStatus(`Presentation started: ${payload.fileName}`);
   }
@@ -695,6 +1081,40 @@ export function useWorkbench() {
     state.playback.currentIndex = 0;
   }
 
+  async function syncActivePresentationIfNeeded(): Promise<void> {
+    if (!state.playback.active) {
+      return;
+    }
+
+    if (state.configurationPreviewActive) {
+      await syncConfigurationPreviewIfNeeded();
+      return;
+    }
+
+    const context = buildPlaybackContextFromSession();
+    if (!context) {
+      return;
+    }
+
+    const nextPayload = buildPlaybackPayload(context, state.playback.currentIndex);
+    const currentLabels = new Set(state.playback.payload?.displays.map((display) => display.windowLabel) ?? []);
+    const nextLabels = new Set(nextPayload.displays.map((display) => display.windowLabel));
+    const topologyChanged =
+      currentLabels.size !== nextLabels.size ||
+      [...nextLabels].some((label) => !currentLabels.has(label));
+
+    if (topologyChanged) {
+      const currentIndex = state.playback.currentIndex;
+      await stopPlayback(state.playback);
+      await startPlayback(state.playback, context, currentIndex);
+      return;
+    }
+
+    await syncPresentation(nextPayload);
+    state.playback.payload = nextPayload;
+    state.playback.configurationId = context.configuration.id;
+  }
+
   function syncPlaybackState(payload: PresentationPayload | null): void {
     if (!payload?.active) {
       state.playback.active = false;
@@ -715,6 +1135,15 @@ export function useWorkbench() {
     state.playback.payload = payload;
     state.configurationPreviewActive = isConfigurationPreviewPayload(payload);
     state.configurationPreviewId = state.configurationPreviewActive ? payload.configurationId : null;
+    if (payload.configurationId) {
+      state.selectedConfigurationId = payload.configurationId;
+      state.selectedConfigurationMonitorKey =
+        state.configurations.find((item) => item.id === payload.configurationId)?.monitors[0]?.deviceId ??
+        state.selectedConfigurationMonitorKey;
+    }
+    if (payload.playlistId) {
+      state.selectedPlaylistId = payload.playlistId;
+    }
     setStatus(`Presentation live: ${payload.fileName}`);
   }
 
@@ -752,6 +1181,29 @@ export function useWorkbench() {
     void stopConfigurationPreviewIfNeeded();
     state.currentPage = 'settings';
     state.settings.lastSelectedPage = 'settings';
+    queueSettingsSave();
+  }
+
+  async function flushPendingPersistence(): Promise<void> {
+    if (settingsSaveTimer) {
+      clearTimeout(settingsSaveTimer);
+      settingsSaveTimer = null;
+      await persistSettingsNow();
+    }
+
+    if (configurationSaveTimer) {
+      clearTimeout(configurationSaveTimer);
+      const targetId = pendingConfigurationSaveId;
+      configurationSaveTimer = null;
+      pendingConfigurationSaveId = null;
+      await persistConfigurationDraftById(targetId);
+    }
+
+    if (playlistSaveTimer) {
+      clearTimeout(playlistSaveTimer);
+      playlistSaveTimer = null;
+      await persistQueuedPlaylistDrafts();
+    }
   }
 
   function handleSidebarSelection(listKey: string, itemKey: string): void {
@@ -781,8 +1233,32 @@ export function useWorkbench() {
       return;
     }
 
+    if (listKey === 'configurations' && actionKey === 'refresh') {
+      await refreshConfigurations();
+      ensureSelection();
+      setStatus('Configurations refreshed');
+      return;
+    }
+
     if (listKey === 'configurations' && itemKey && actionKey === 'delete') {
       await deleteConfigurationById(itemKey);
+      return;
+    }
+
+    if (listKey === 'configurations' && itemKey && actionKey === 'duplicate') {
+      const configuration = state.configurations.find((item) => item.id === itemKey);
+      if (!configuration) {
+        return;
+      }
+      const duplicated = duplicateConfigurationRecord(configuration);
+      state.configurations = sortByName([duplicated, ...state.configurations]);
+      selectConfiguration(duplicated.id);
+      setStatus('Configuration duplicated');
+      return;
+    }
+
+    if (listKey === 'configurations' && itemKey && actionKey === 'favorite') {
+      await toggleConfigurationFavorite(itemKey);
       return;
     }
 
@@ -796,6 +1272,16 @@ export function useWorkbench() {
       return;
     }
 
+    if (listKey === 'playlists' && itemKey && actionKey === 'favorite') {
+      await togglePlaylistFavorite(itemKey);
+      return;
+    }
+
+    if (listKey === 'playlists' && itemKey && actionKey === 'remove') {
+      await removePlaylistFromSidebar(itemKey);
+      return;
+    }
+
     if (listKey === 'playlists' && itemKey && actionKey === 'scan') {
       await rescanPlaylistById(itemKey);
       return;
@@ -804,6 +1290,11 @@ export function useWorkbench() {
     if (listKey === 'monitors' && actionKey === 'refresh') {
       await refreshMonitors();
       setStatus('Monitors refreshed');
+      return;
+    }
+
+    if (listKey === 'monitors' && itemKey && actionKey === 'forget') {
+      forgetMonitor(itemKey);
       return;
     }
 
@@ -824,6 +1315,11 @@ export function useWorkbench() {
       case 'refresh-monitors':
         await refreshMonitors();
         return;
+      case 'forget-monitor':
+        if (state.selectedMonitorId) {
+          forgetMonitor(state.selectedMonitorId);
+        }
+        return;
       case 'refresh-configurations':
         await refreshConfigurations();
         setStatus('Configurations refreshed');
@@ -841,8 +1337,20 @@ export function useWorkbench() {
 
   async function handleWorkspaceAction(actionKey: string): Promise<void> {
     switch (actionKey) {
+      case 'presentation-previous':
+        await stepActivePlayback(-1);
+        return;
+      case 'presentation-stop':
+        await stopActivePlayback();
+        return;
+      case 'presentation-next':
+        await stepActivePlayback(1);
+        return;
       case 'preview-configuration':
         await previewSelectedConfiguration();
+        return;
+      case 'duplicate-configuration':
+        duplicateSelectedConfiguration();
         return;
       case 'save-configuration':
         await saveSelectedConfiguration();
@@ -873,14 +1381,21 @@ export function useWorkbench() {
     selectConfigurationMonitor,
     selectPlaylist,
     updateMonitorFriendlyName,
+    updateSelectedConfigurationName,
+    updateSelectedConfigurationDescription,
     createConfiguration,
+    duplicateSelectedConfiguration,
     saveSelectedConfiguration,
     deleteConfigurationById,
     addMonitorToSelectedConfiguration,
     removeMonitorFromSelectedConfiguration,
     updateSelectedConfigurationMonitor,
+    reorderSelectedConfigurationMonitors,
     createPlaylist,
     choosePlaylistSourceFolder,
+    updateSelectedPlaylistName,
+    updateSelectedPlaylistConfiguration,
+    updateSelectedPlaylistEntryVisibility,
     regenerateSelectedPlaylist,
     rescanPlaylistById,
     saveSelectedPlaylist,
@@ -898,6 +1413,7 @@ export function useWorkbench() {
     handleMenuCommand,
     handleWorkspaceAction,
     setStatus,
-    setError
+    setError,
+    flushPendingPersistence
   };
 }

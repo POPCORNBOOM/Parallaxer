@@ -15,7 +15,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 import type { PresentationPayload } from '../types';
-import { getPresentationState, readPlaylist, startPresentation, syncPresentation } from './tauri';
+import { getPresentationState, readPlaylist, scanPlaylistFolder, startPresentation, syncPresentation } from './tauri';
 
 function createPayload(count = 2): PresentationPayload {
   return {
@@ -29,8 +29,8 @@ function createPayload(count = 2): PresentationPayload {
       shortName: `display-${index + 1}`,
       windowLabel: `presentation-display-${index + 1}`,
       deviceId: `monitor-${index + 1}`,
-      assetPath: `D:/Playlist/display-${index + 1}/scene-01.jpg`,
-      relativePath: `display-${index + 1}/scene-01.jpg`,
+      assetPath: 'D:/Playlist/scene-01.jpg',
+      relativePath: 'scene-01.jpg',
       frame: {
         width: 3440,
         height: 1440,
@@ -75,5 +75,45 @@ describe('tauri frontend contract', () => {
     await getPresentationState();
 
     expect(mocks.invoke).toHaveBeenCalledWith('get_presentation_state');
+  });
+
+  test('passes monitors when scanning playlist folders', async () => {
+    await scanPlaylistFolder(
+      'D:/Playlist',
+      [
+        {
+          deviceId: 'monitor-1',
+          shortName: 'left',
+          order: 0,
+          mapping: {
+            rotation: 0,
+            mirror: 'none',
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0
+          }
+        }
+      ],
+      []
+    );
+
+    expect(mocks.invoke).toHaveBeenCalledWith('scan_playlist_folder', {
+      sourceFolder: 'D:/Playlist',
+      monitors: [
+        {
+          deviceId: 'monitor-1',
+          shortName: 'left',
+          order: 0,
+          mapping: {
+            rotation: 0,
+            mirror: 'none',
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0
+          }
+        }
+      ],
+      previousEntries: []
+    });
   });
 });

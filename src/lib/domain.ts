@@ -2,6 +2,7 @@ import type {
   AppSettings,
   ConfigurationMonitor,
   ConfigurationRecord,
+  MonitorRecord,
   MonitorMapping,
   PlaylistEntry,
   PlaylistRecord,
@@ -10,9 +11,18 @@ import type {
 } from '../types';
 
 export const CONFIGURATION_PREVIEW_RELATIVE_PATH = '__configuration_preview__';
+export const PLAYLIST_SIDEBAR_CACHE_KEY = 'playlistSidebar';
+
+export interface PlaylistSidebarCacheEntry {
+  favorite?: boolean;
+}
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+$/g, '');
+}
+
+export function normalizePlaylistFolder(value: string): string {
+  return normalizePath(value.trim());
 }
 
 function joinPath(base: string, relativePath: string): string {
@@ -38,22 +48,118 @@ function normalizeShortName(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function normalizeWindowLabelSegment(value: string, fallback: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized || fallback;
+}
+
+function createStableFolderHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+export function createPlaylistKey(sourceFolder: string): string {
+  return normalizePlaylistFolder(sourceFolder);
+}
+
+function getPathLeaf(path: string): string {
+  const normalized = normalizePath(path);
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.at(-1) ?? '';
+}
+
 function isPlayableEntry(entry: PlaylistEntry): boolean {
   return entry.visibility && entry.status === 'ready';
+}
+
+function resolvePresentationSlice(
+  relativePath: string,
+  perMonitorEntry: PlaylistEntry['perMonitor'][string] | undefined,
+  order: number,
+  total: number
+): PresentationDisplayPayload['slice'] | undefined {
+  if (!perMonitorEntry?.sharedSlice || !relativePath.trim() || total <= 1) {
+    return undefined;
+  }
+
+  return {
+    axis: 'horizontal',
+    index: order,
+    total
+  };
 }
 
 export function createEmptySettings(): AppSettings {
   return {
     monitorOverrides: {},
+    monitorHistory: [],
     recentPlaylistFolders: [],
     cache: {}
   };
+}
+
+function normalizeMonitorRecord(monitor: MonitorRecord): MonitorRecord {
+  return {
+    ...monitor,
+    friendlyName: monitor.friendlyName.trim(),
+    systemName: monitor.systemName.trim(),
+    manufacturer: monitor.manufacturer?.trim() || undefined,
+    productCode: monitor.productCode?.trim() || undefined,
+    serialNumber: monitor.serialNumber?.trim() || undefined,
+    edid: monitor.edid?.trim() || undefined
+  };
+}
+
+export function mergeMonitorHistory(args: {
+  currentMonitors: MonitorRecord[];
+  historyMonitors: MonitorRecord[];
+  monitorOverrides: AppSettings['monitorOverrides'];
+}): MonitorRecord[] {
+  const historyByDeviceId = new Map(
+    args.historyMonitors
+      .filter((monitor) => monitor.deviceId.trim())
+      .map((monitor) => [monitor.deviceId, normalizeMonitorRecord(monitor)])
+  );
+
+  for (const currentMonitor of args.currentMonitors) {
+    const normalizedMonitor = normalizeMonitorRecord(currentMonitor);
+    const historyMonitor = historyByDeviceId.get(normalizedMonitor.deviceId);
+    const friendlyName =
+      args.monitorOverrides[normalizedMonitor.deviceId]?.friendlyName ||
+      normalizedMonitor.friendlyName ||
+      historyMonitor?.friendlyName ||
+      normalizedMonitor.systemName;
+
+    historyByDeviceId.set(normalizedMonitor.deviceId, {
+      ...(historyMonitor ?? normalizedMonitor),
+      ...normalizedMonitor,
+      friendlyName,
+      connected: true,
+      lastSeenAt: normalizedMonitor.lastSeenAt || historyMonitor?.lastSeenAt || ''
+    });
+  }
+
+  return [...historyByDeviceId.values()].map((monitor) => ({
+    ...monitor,
+    friendlyName:
+      args.monitorOverrides[monitor.deviceId]?.friendlyName || monitor.friendlyName || monitor.systemName,
+    connected: args.currentMonitors.some((current) => current.deviceId === monitor.deviceId)
+  }));
 }
 
 export function createDefaultMonitorMapping(): MonitorMapping {
   return {
     rotation: 0,
     mirror: 'none',
+    fit: 'contain',
     scale: 1,
     offsetX: 0,
     offsetY: 0
@@ -65,7 +171,26 @@ export function createConfigurationDraft(): ConfigurationRecord {
     id: createId('configuration'),
     name: '',
     description: '',
+    favorite: false,
     monitors: []
+  };
+}
+
+export function duplicateConfigurationRecord(
+  configuration: ConfigurationRecord,
+  options?: { nameSuffix?: string }
+): ConfigurationRecord {
+  const suffix = options?.nameSuffix ?? ' Copy';
+  return {
+    ...configuration,
+    id: createId('configuration'),
+    name: `${configuration.name || 'Configuration'}${suffix}`,
+    monitors: configuration.monitors.map((monitor) => ({
+      ...monitor,
+      mapping: {
+        ...monitor.mapping
+      }
+    }))
   };
 }
 
@@ -81,6 +206,45 @@ export function createPlaylistDraft(): PlaylistRecord {
   };
 }
 
+export function createCachedPlaylistRecord(sourceFolder: string): PlaylistRecord {
+  const normalizedFolder = normalizePlaylistFolder(sourceFolder);
+  const leaf = getPathLeaf(normalizedFolder);
+  return {
+    id: createPlaylistKey(normalizedFolder) || `playlist-cache-${createStableFolderHash(normalizedFolder.toLowerCase())}`,
+    name: leaf || 'Untitled playlist',
+    sourceFolder: normalizedFolder,
+    configurationId: '',
+    mappingMode: 'same-name-separated-by-shortname',
+    entries: [],
+    playlistFilePath: normalizedFolder ? `${normalizedFolder}/playlist.json` : ''
+  };
+}
+
+export function findPlaylistBySourceFolder(
+  playlists: PlaylistRecord[],
+  sourceFolder: string
+): PlaylistRecord | null {
+  const normalizedFolder = createPlaylistKey(sourceFolder);
+  return (
+    playlists.find((playlist) => createPlaylistKey(playlist.sourceFolder) === normalizedFolder) ?? null
+  );
+}
+
+export function upsertPlaylistRecord(
+  playlists: PlaylistRecord[],
+  playlist: PlaylistRecord
+): PlaylistRecord[] {
+  const normalizedFolder = createPlaylistKey(playlist.sourceFolder);
+  return [
+    playlist,
+    ...playlists.filter(
+      (item) =>
+        item.id !== playlist.id &&
+        createPlaylistKey(item.sourceFolder) !== normalizedFolder
+    )
+  ];
+}
+
 export function sortConfigurationMonitors(monitors: ConfigurationMonitor[]): ConfigurationMonitor[] {
   return [...monitors].sort((left, right) => {
     if (left.order !== right.order) {
@@ -93,7 +257,6 @@ export function sortConfigurationMonitors(monitors: ConfigurationMonitor[]): Con
 
 export function validateConfiguration(config: ConfigurationRecord): string[] {
   const errors: string[] = [];
-  const shortNames = new Set<string>();
   const orders = new Set<number>();
   const deviceIds = new Set<string>();
 
@@ -120,15 +283,6 @@ export function validateConfiguration(config: ConfigurationRecord): string[] {
 
     if (!monitor.shortName.trim()) {
       errors.push('shortName is required');
-    }
-
-    const normalizedShortName = normalizeShortName(monitor.shortName);
-    if (normalizedShortName) {
-      if (shortNames.has(normalizedShortName)) {
-        errors.push('shortName must be unique');
-      } else {
-        shortNames.add(normalizedShortName);
-      }
     }
 
     if (orders.has(monitor.order)) {
@@ -181,7 +335,7 @@ export function validatePlaylist(
 
   for (const entry of playlist.entries) {
     for (const monitor of configuration.monitors) {
-      const perMonitor = entry.perMonitor[monitor.shortName];
+      const perMonitor = entry.perMonitor[monitor.deviceId];
       if (!perMonitor) {
         errors.push(`Entry ${entry.fileName} is missing monitor ${monitor.shortName}`);
         continue;
@@ -247,6 +401,36 @@ export function upsertRecentPlaylistFolder(
   );
 }
 
+export function removeRecentPlaylistFolder(recentFolders: string[], folder: string): string[] {
+  const normalizedFolder = normalizePath(folder.trim());
+  return recentFolders.filter((item) => normalizePath(item) !== normalizedFolder);
+}
+
+export function getPlaylistSidebarCache(settings: AppSettings): Record<string, PlaylistSidebarCacheEntry> {
+  const rawValue = settings.cache[PLAYLIST_SIDEBAR_CACHE_KEY];
+  if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(rawValue as Record<string, unknown>).flatMap(([folder, value]) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return [];
+      }
+
+      const favorite = (value as { favorite?: unknown }).favorite;
+      return [[normalizePath(folder), { favorite: favorite === true } satisfies PlaylistSidebarCacheEntry]];
+    })
+  );
+}
+
+export function setPlaylistSidebarCache(
+  settings: AppSettings,
+  cache: Record<string, PlaylistSidebarCacheEntry>
+): void {
+  settings.cache[PLAYLIST_SIDEBAR_CACHE_KEY] = cache;
+}
+
 export function getPlayableEntryIndices(entries: PlaylistEntry[]): number[] {
   return entries.flatMap((entry, index) => (isPlayableEntry(entry) ? [index] : []));
 }
@@ -291,15 +475,22 @@ export function buildPresentationPayload(args: {
 
   const displays: PresentationDisplayPayload[] = sortConfigurationMonitors(configuration.monitors).map(
     (monitor) => {
-      const perMonitor = entry.perMonitor[monitor.shortName];
+      const perMonitor = entry.perMonitor[monitor.deviceId];
       const relativePath = perMonitor?.relativePath ?? '';
+      const safeLabelSegment = normalizeWindowLabelSegment(monitor.shortName, `display-${monitor.order + 1}`);
 
       return {
         shortName: monitor.shortName,
-        windowLabel: `presentation-${monitor.shortName}`,
+        windowLabel: `presentation-${safeLabelSegment}-${monitor.order + 1}`,
         deviceId: monitor.deviceId,
         assetPath: relativePath ? joinPath(playlist.sourceFolder, relativePath) : '',
         relativePath,
+        slice: resolvePresentationSlice(
+          relativePath,
+          perMonitor,
+          monitor.order,
+          configuration.monitors.length
+        ),
         frame: monitorFramesByDeviceId?.[monitor.deviceId],
         mapping: monitor.mapping,
         selected: monitor.deviceId === selectedMonitorDeviceId
@@ -323,16 +514,20 @@ export function buildConfigurationPreviewPayload(
   selectedMonitorDeviceId?: string | null,
   monitorFramesByDeviceId?: Record<string, { width: number; height: number; scaleFactor?: number }>
 ): PresentationPayload {
-  const displays: PresentationDisplayPayload[] = sortConfigurationMonitors(configuration.monitors).map((monitor) => ({
-    shortName: monitor.shortName,
-    windowLabel: `presentation-preview-${monitor.order}`,
-    deviceId: monitor.deviceId,
-    assetPath: '',
-    relativePath: CONFIGURATION_PREVIEW_RELATIVE_PATH,
-    frame: monitorFramesByDeviceId?.[monitor.deviceId],
-    mapping: monitor.mapping,
-    selected: monitor.deviceId === selectedMonitorDeviceId
-  }));
+  const displays: PresentationDisplayPayload[] = sortConfigurationMonitors(configuration.monitors).map((monitor) => {
+    const safeLabelSegment = normalizeWindowLabelSegment(monitor.shortName, `display-${monitor.order + 1}`);
+
+    return {
+      shortName: monitor.shortName,
+      windowLabel: `presentation-preview-${safeLabelSegment}-${monitor.order + 1}`,
+      deviceId: monitor.deviceId,
+      assetPath: '',
+      relativePath: CONFIGURATION_PREVIEW_RELATIVE_PATH,
+      frame: monitorFramesByDeviceId?.[monitor.deviceId],
+      mapping: monitor.mapping,
+      selected: monitor.deviceId === selectedMonitorDeviceId
+    };
+  });
 
   return {
     active: true,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { MonitorRecord } from '../../types';
-import { formatConnectedState } from '../../lib/ui';
+import { formatConnectedState, formatLastSeenAt } from '../../lib/ui';
 
 const props = defineProps<{
   monitor: MonitorRecord | null;
@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'friendly-name-changed': [value: string];
+  'forget-monitor': [];
 }>();
 </script>
 
@@ -27,6 +28,10 @@ const emit = defineEmits<{
       <div>
         <span class="detail-label">Status</span>
         <strong>{{ formatConnectedState(props.monitor) }}</strong>
+      </div>
+      <div>
+        <span class="detail-label">Last Live</span>
+        <strong>{{ formatLastSeenAt(props.monitor.lastSeenAt) }}</strong>
       </div>
       <div>
         <span class="detail-label">Device ID</span>
@@ -56,6 +61,16 @@ const emit = defineEmits<{
         <span class="detail-label">Serial Number</span>
         <strong>{{ props.monitor.serialNumber }}</strong>
       </div>
+      <div v-if="props.monitor.edid" class="detail-span">
+        <span class="detail-label">EDID</span>
+        <code class="detail-code">{{ props.monitor.edid }}</code>
+      </div>
+    </section>
+
+    <section v-if="!props.monitor.connected" class="detail-section monitor-detail-actions">
+      <button class="chip-button danger" type="button" @click="emit('forget-monitor')">
+        Forget Monitor
+      </button>
     </section>
   </div>
   <div v-else class="empty-state">Select a monitor from the sidebar.</div>
@@ -89,5 +104,24 @@ const emit = defineEmits<{
   display: block;
   margin-top: 2px;
   line-height: 1.35;
+}
+
+.detail-span {
+  grid-column: 1 / -1;
+}
+
+.detail-code {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.monitor-detail-actions {
+  display: flex;
+  justify-content: flex-start;
 }
 </style>

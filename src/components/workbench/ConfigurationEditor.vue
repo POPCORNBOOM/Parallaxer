@@ -1,7 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import type { ConfigurationMonitor, ConfigurationRecord, MonitorRecord, Rotation, MirrorMode } from '../../types';
-import { buildMonitorTransform, formatMonitorTitle, isQuarterTurnRotation } from '../../lib/ui';
+import type {
+  ConfigurationMonitor,
+  ConfigurationRecord,
+  MediaFit,
+  MirrorMode,
+  MonitorRecord,
+  Rotation
+} from '../../types';
+import {
+  buildMediaFrameStyle,
+  buildMonitorTransform,
+  formatMonitorTitle,
+  getMonitorMediaFit,
+  isQuarterTurnRotation
+} from '../../lib/ui';
 
 const props = defineProps<{
   configuration: ConfigurationRecord | null;
@@ -15,22 +28,38 @@ const emit = defineEmits<{
   'add-monitor': [deviceId: string];
   'select-monitor': [deviceId: string];
   'remove-monitor': [deviceId: string];
+  'reorder-monitors': [orderedDeviceIds: string[]];
   'short-name-changed': [deviceId: string, value: string];
   'rotation-changed': [deviceId: string, value: Rotation];
   'mirror-changed': [deviceId: string, value: MirrorMode];
+  'fit-changed': [deviceId: string, value: MediaFit];
   'scale-changed': [deviceId: string, value: number];
   'offset-x-changed': [deviceId: string, value: number];
   'offset-y-changed': [deviceId: string, value: number];
 }>();
 
 const rotations: Rotation[] = [0, 90, 180, 270];
-const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical', 'both'];
+const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical'];
+const fits: MediaFit[] = ['contain', 'cover', 'fill', 'none'];
 const stripReferenceHeight = 216;
+const stripMinimumMappedHeight = 86;
+const stripHeightDecayGamma = 2.6;
 
 const addPickerOpen = ref(false);
 const addTriggerRef = ref<HTMLElement | null>(null);
 const addPickerElement = ref<HTMLElement | null>(null);
+const stripScrollRef = ref<HTMLElement | null>(null);
 const addPickerStyle = ref<Record<string, string>>({});
+const dragOrderedIds = ref<string[]>([]);
+const pressedDeviceId = ref<string | null>(null);
+const draggedDeviceId = ref<string | null>(null);
+const dragOverDeviceId = ref<string | null>(null);
+const dragBefore = ref(false);
+const suppressMonitorClick = ref(false);
+let dragStartX = 0;
+let dragStartY = 0;
+let dragScrollFrame = 0;
+let dragScrollDirection = 0;
 
 function getMonitorInfo(deviceId: string): MonitorRecord | undefined {
   return props.availableMonitors.find((monitor) => monitor.deviceId === deviceId);
@@ -99,8 +128,28 @@ function getPreviewViewportStyle(
   };
 }
 
+function getPreviewFrameStyle(
+  cardWidth: number,
+  cardHeight: number,
+  monitor: ReturnType<typeof getDisplayedMonitors>[number]
+): Record<string, string> {
+  const effectiveMonitorWidth = isRotated(monitor.mapping) ? monitor.size.height : monitor.size.width;
+  const effectiveMonitorHeight = isRotated(monitor.mapping) ? monitor.size.width : monitor.size.height;
+
+  return buildMediaFrameStyle({
+    fit: getMonitorMediaFit(monitor.mapping),
+    viewportWidth: cardWidth,
+    viewportHeight: cardHeight,
+    mediaWidth: effectiveMonitorWidth,
+    mediaHeight: effectiveMonitorHeight
+  });
+}
+
 const configuredMonitors = computed(() =>
-  (props.configuration?.monitors ?? []).map((monitor) => {
+  (props.configuration?.monitors ?? [])
+    .slice()
+    .sort((left, right) => left.order - right.order)
+    .map((monitor) => {
     const info = getMonitorInfo(monitor.deviceId);
     const size = getPhysicalSize(monitor.deviceId);
     return {
@@ -118,12 +167,18 @@ const stripMetrics = computed(() => {
 
   return configuredMonitors.value.map((monitor) => {
     const isReferenceMonitor = monitor.size.width === maxWidth;
-    const width = isReferenceMonitor
-      ? stripReferenceHeight * (monitor.size.width / monitor.size.height)
-      : stripReferenceHeight * (monitor.size.width / maxWidth);
-    const height = isReferenceMonitor
+    const rawHeight = isReferenceMonitor
       ? stripReferenceHeight
       : stripReferenceHeight * (monitor.size.height / maxWidth);
+    const normalizedHeight = Math.min(Math.max(rawHeight / stripReferenceHeight, 0), 1);
+    const mappedHeight =
+      stripMinimumMappedHeight +
+      (stripReferenceHeight - stripMinimumMappedHeight) *
+      (1 - Math.exp(-stripHeightDecayGamma * normalizedHeight)) /
+      (1 - Math.exp(-stripHeightDecayGamma));
+    const aspectRatio = monitor.size.height > 0 ? monitor.size.width / monitor.size.height : 1;
+    const width = mappedHeight * aspectRatio;
+    const height = mappedHeight;
 
     return {
       deviceId: monitor.deviceId,
@@ -158,6 +213,170 @@ const addableMonitors = computed(() => {
 });
 
 const addCardStyle = computed(() => `width:168px;height:${stripHeight.value}px;`);
+
+function stopDragAutoScroll(): void {
+  dragScrollDirection = 0;
+  if (dragScrollFrame) {
+    cancelAnimationFrame(dragScrollFrame);
+    dragScrollFrame = 0;
+  }
+}
+
+function runDragAutoScroll(): void {
+  const container = stripScrollRef.value;
+  if (!container || dragScrollDirection === 0) {
+    dragScrollFrame = 0;
+    return;
+  }
+
+  container.scrollLeft += dragScrollDirection * 12;
+  dragScrollFrame = requestAnimationFrame(runDragAutoScroll);
+}
+
+function startDragAutoScroll(direction: number): void {
+  if (dragScrollDirection === direction && dragScrollFrame) {
+    return;
+  }
+
+  dragScrollDirection = direction;
+  if (!dragScrollFrame) {
+    dragScrollFrame = requestAnimationFrame(runDragAutoScroll);
+  }
+}
+
+function resetDragState(): void {
+  pressedDeviceId.value = null;
+  draggedDeviceId.value = null;
+  dragOverDeviceId.value = null;
+  dragBefore.value = false;
+  dragOrderedIds.value = [];
+  stopDragAutoScroll();
+  document.body.style.userSelect = '';
+}
+
+function applyReorder(targetDeviceId: string, before: boolean): void {
+  if (!draggedDeviceId.value || draggedDeviceId.value === targetDeviceId) {
+    return;
+  }
+
+  const nextIds = dragOrderedIds.value.length > 0
+    ? [...dragOrderedIds.value]
+    : configuredMonitors.value.map((monitor) => monitor.deviceId);
+  const draggedIndex = nextIds.indexOf(draggedDeviceId.value);
+  const targetIndex = nextIds.indexOf(targetDeviceId);
+  if (draggedIndex < 0 || targetIndex < 0) {
+    return;
+  }
+
+  nextIds.splice(draggedIndex, 1);
+  const insertIndex = before
+    ? Math.max(0, targetIndex - (draggedIndex < targetIndex ? 1 : 0))
+    : targetIndex + (draggedIndex < targetIndex ? 0 : 1);
+  nextIds.splice(insertIndex, 0, draggedDeviceId.value);
+  dragOrderedIds.value = nextIds;
+}
+
+function onMonitorPointerDown(event: PointerEvent, deviceId: string): void {
+  if (event.button !== 0) {
+    return;
+  }
+
+  pressedDeviceId.value = deviceId;
+  dragStartX = event.clientX;
+  dragStartY = event.clientY;
+  dragOrderedIds.value = configuredMonitors.value.map((monitor) => monitor.deviceId);
+}
+
+function onMonitorPointerMove(event: PointerEvent): void {
+  if (!pressedDeviceId.value) {
+    return;
+  }
+
+  if (!draggedDeviceId.value) {
+    const deltaX = event.clientX - dragStartX;
+    const deltaY = event.clientY - dragStartY;
+    if (Math.hypot(deltaX, deltaY) < 6) {
+      return;
+    }
+
+    draggedDeviceId.value = pressedDeviceId.value;
+    document.body.style.userSelect = 'none';
+  }
+
+  const targetElement = document.elementFromPoint(event.clientX, event.clientY);
+  const stackElement = targetElement instanceof Element
+    ? targetElement.closest<HTMLElement>('.monitor-stack[data-monitor-device-id]')
+    : null;
+  const targetDeviceId = stackElement?.dataset.monitorDeviceId ?? null;
+
+  if (!targetDeviceId || targetDeviceId === draggedDeviceId.value) {
+    dragOverDeviceId.value = null;
+    stopDragAutoScroll();
+    return;
+  }
+
+  if (!stackElement) {
+    return;
+  }
+
+  const rect = stackElement.getBoundingClientRect();
+  const offsetX = event.clientX - rect.left;
+  const before = offsetX < rect.width / 2;
+  dragOverDeviceId.value = targetDeviceId;
+  dragBefore.value = before;
+  applyReorder(targetDeviceId, before);
+
+  const scrollContainer = stripScrollRef.value;
+  if (scrollContainer) {
+    const scrollRect = scrollContainer.getBoundingClientRect();
+    const edgeThreshold = 48;
+    if (event.clientX <= scrollRect.left + edgeThreshold) {
+      startDragAutoScroll(-1);
+    } else if (event.clientX >= scrollRect.right - edgeThreshold) {
+      startDragAutoScroll(1);
+    } else {
+      stopDragAutoScroll();
+    }
+  }
+}
+
+function onMonitorPointerUp(): void {
+  if (!pressedDeviceId.value) {
+    return;
+  }
+
+  if (draggedDeviceId.value && dragOrderedIds.value.length > 0) {
+    emit('reorder-monitors', [...dragOrderedIds.value]);
+    suppressMonitorClick.value = true;
+  }
+  resetDragState();
+}
+
+function onMonitorClick(deviceId: string): void {
+  if (suppressMonitorClick.value) {
+    suppressMonitorClick.value = false;
+    return;
+  }
+
+  emit('select-monitor', deviceId);
+}
+
+function isDropPreviewBefore(deviceId: string): boolean {
+  return dragOverDeviceId.value === deviceId && dragBefore.value;
+}
+
+function isDropPreviewAfter(deviceId: string): boolean {
+  return dragOverDeviceId.value === deviceId && !dragBefore.value;
+}
+
+function getDisplayedMonitors() {
+  if (dragOrderedIds.value.length === 0) {
+    return configuredMonitors.value;
+  }
+
+  const byId = Object.fromEntries(configuredMonitors.value.map((monitor) => [monitor.deviceId, monitor]));
+  return dragOrderedIds.value.map((deviceId) => byId[deviceId]).filter(Boolean);
+}
 
 function updateAddPickerPosition(): void {
   const trigger = addTriggerRef.value;
@@ -222,12 +441,16 @@ function parseNumberInput(event: Event, fallback: number): number {
 
 onMounted(() => {
   window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onMonitorPointerMove);
+  window.addEventListener('pointerup', onMonitorPointerUp);
   window.addEventListener('resize', onViewportChanged);
   window.addEventListener('scroll', onViewportChanged, true);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onPointerDown);
+  window.removeEventListener('pointermove', onMonitorPointerMove);
+  window.removeEventListener('pointerup', onMonitorPointerUp);
   window.removeEventListener('resize', onViewportChanged);
   window.removeEventListener('scroll', onViewportChanged, true);
 });
@@ -254,7 +477,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="monitor-strip-scroll">
-        <div class="monitor-strip-canvas" :style="{ minHeight: `${stripHeight}px` }">
+        <div ref="stripScrollRef" class="monitor-strip-canvas" :style="{ minHeight: `${stripHeight}px` }">
           <div class="add-monitor-slot">
             <button ref="addTriggerRef" class="monitor-card add-card"
               :class="{ 'is-open': addPickerOpen, 'is-disabled': addableMonitors.length === 0 }" :style="addCardStyle"
@@ -266,54 +489,58 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div
-            v-for="monitor in configuredMonitors"
-            :key="monitor.deviceId"
-            class="monitor-card monitor-visual"
-            :class="{ selected: monitor.deviceId === props.selectedMonitorKey }"
-            :style="monitorCardStyles[monitor.deviceId]"
-            role="button"
-            tabindex="0"
-            @click="emit('select-monitor', monitor.deviceId)"
-            @keydown.enter="emit('select-monitor', monitor.deviceId)"
-            @keydown.space.prevent="emit('select-monitor', monitor.deviceId)"
-          >
-            <div class="monitor-preview-stage" aria-hidden="true">
-              <div
-                class="monitor-preview-viewport"
-                :style="
-                  getPreviewViewportStyle(
-                    stripMetricsById[monitor.deviceId]?.width ?? monitor.size.width,
-                    stripMetricsById[monitor.deviceId]?.height ?? monitor.size.height,
-                    monitor.mapping
-                  )
-                "
-              >
-                <div class="monitor-preview-canvas" :style="{ transform: getRotationTransform(monitor.mapping) }">
-                  <div
-                    class="monitor-preview"
-                    :style="{
-                      transform: getPreviewTransform(
-                        monitor.mapping,
-                        stripMetricsById[monitor.deviceId]?.width ?? monitor.size.width,
-                        stripMetricsById[monitor.deviceId]?.height ?? monitor.size.height,
-                        monitor.size.width,
-                        monitor.size.height
-                      )
-                    }"
-                  >
-                    <span class="monitor-preview-word">Graph</span>
+          <div v-for="monitor in getDisplayedMonitors()" :key="monitor.deviceId" class="monitor-stack"
+            :class="{
+              dragging: draggedDeviceId === monitor.deviceId,
+              'drop-preview-before': isDropPreviewBefore(monitor.deviceId),
+              'drop-preview-after': isDropPreviewAfter(monitor.deviceId)
+            }" :data-monitor-device-id="monitor.deviceId" @pointerdown="onMonitorPointerDown($event, monitor.deviceId)">
+            <div class="monitor-stack-top">
+              <div class="monitor-stack-top-left">
+                <strong class="monitor-name">{{ monitor.title }}</strong>
+                <span class="monitor-short">{{ monitor.shortName }}</span>
+              </div>
+              <span class="monitor-index">{{ monitor.order + 1 }}</span>
+            </div>
+            <div class="monitor-card monitor-visual"
+              :class="{ selected: monitor.deviceId === props.selectedMonitorKey }"
+              :style="monitorCardStyles[monitor.deviceId]" role="button" tabindex="0"
+              @click="onMonitorClick(monitor.deviceId)"
+              @keydown.enter="emit('select-monitor', monitor.deviceId)"
+              @keydown.space.prevent="emit('select-monitor', monitor.deviceId)">
+              <div class="monitor-preview-stage" aria-hidden="true">
+                <div class="monitor-preview-viewport" :style="getPreviewViewportStyle(
+                  stripMetricsById[monitor.deviceId]?.width ?? monitor.size.width,
+                  stripMetricsById[monitor.deviceId]?.height ?? monitor.size.height,
+                  monitor.mapping
+                )
+                  ">
+                  <div class="monitor-preview-canvas" :style="{ transform: getRotationTransform(monitor.mapping) }">
+                    <div class="monitor-preview-frame" :style="getPreviewFrameStyle(
+                      stripMetricsById[monitor.deviceId]?.width ?? monitor.size.width,
+                      stripMetricsById[monitor.deviceId]?.height ?? monitor.size.height,
+                      monitor
+                    )">
+                      <div class="monitor-preview" :style="{
+                        transform: getPreviewTransform(
+                          monitor.mapping,
+                          stripMetricsById[monitor.deviceId]?.width ?? monitor.size.width,
+                          stripMetricsById[monitor.deviceId]?.height ?? monitor.size.height,
+                          monitor.size.width,
+                          monitor.size.height
+                        )
+                      }">
+                        <span class="monitor-preview-word">Graph</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="monitor-frame">
-              <div class="monitor-meta">
-                <strong class="monitor-name">{{ monitor.title }}</strong>
-                <span class="monitor-short">{{ monitor.shortName }}</span>
-              </div>
+            <div class="monitor-stack-bottom">
               <span class="monitor-size">{{ monitor.size.width }}×{{ monitor.size.height }}</span>
-              <button class="monitor-remove" type="button" @click.stop="emit('remove-monitor', monitor.deviceId)">
+              <button class="monitor-remove" type="button" @pointerdown.stop
+                @click.stop="emit('remove-monitor', monitor.deviceId)">
                 Remove
               </button>
             </div>
@@ -338,8 +565,8 @@ onBeforeUnmount(() => {
       <input class="detail-input" :value="getSelectedMonitor()!.shortName" placeholder="display-a"
         @input="emit('short-name-changed', getSelectedMonitor()!.deviceId, ($event.target as HTMLInputElement).value)" />
 
-      <div>
-        <span class="detail-label config-label">Rotation</span>
+      <div class="mapping-field">
+        <label class="detail-label config-label">Rotation</label>
         <div class="choice-row">
           <button v-for="rotation in rotations" :key="rotation" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.rotation === rotation }" type="button"
@@ -349,13 +576,24 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div>
-        <span class="detail-label config-label">Mirror</span>
+      <div class="mapping-field">
+        <label class="detail-label config-label">Mirror</label>
         <div class="choice-row">
           <button v-for="mirror in mirrors" :key="mirror" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.mirror === mirror }" type="button"
             @click="emit('mirror-changed', getSelectedMonitor()!.deviceId, mirror)">
             {{ mirror }}
+          </button>
+        </div>
+      </div>
+
+      <div class="mapping-field">
+        <label class="detail-label config-label">Fit</label>
+        <div class="choice-row">
+          <button v-for="fit in fits" :key="fit" class="choice-button"
+            :class="{ selected: (getSelectedMonitor()!.mapping.fit ?? 'contain') === fit }" type="button"
+            @click="emit('fit-changed', getSelectedMonitor()!.deviceId, fit)">
+            {{ fit }}
           </button>
         </div>
       </div>
@@ -438,7 +676,7 @@ onBeforeUnmount(() => {
 .monitor-strip-title {
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: rgba(244, 244, 245, 0.96);
 }
 
@@ -458,7 +696,7 @@ onBeforeUnmount(() => {
 .monitor-strip-canvas {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: end;
   gap: 16px;
   min-width: fit-content;
 }
@@ -466,6 +704,67 @@ onBeforeUnmount(() => {
 .add-monitor-slot {
   position: relative;
   flex: 0 0 auto;
+  align-self: center;
+}
+
+.monitor-stack {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-self: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  position: relative;
+  cursor: grab;
+}
+
+.monitor-stack.dragging {
+  opacity: 0.42;
+  cursor: grabbing;
+}
+
+.monitor-stack.drop-preview-before::before,
+.monitor-stack.drop-preview-after::after {
+  content: '';
+  position: absolute;
+  top: 34px;
+  bottom: 28px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.monitor-stack.drop-preview-before::before {
+  left: -8px;
+}
+
+.monitor-stack.drop-preview-after::after {
+  right: -8px;
+}
+
+.monitor-stack-top,
+.monitor-stack-bottom {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.monitor-stack-top {
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.monitor-stack-bottom {
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
+}
+
+.monitor-stack-top-left {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
 }
 
 .monitor-card {
@@ -483,7 +782,7 @@ onBeforeUnmount(() => {
 
 .monitor-visual {
   display: block;
-  cursor: pointer;
+  cursor: inherit;
 }
 
 .monitor-visual:hover,
@@ -502,13 +801,6 @@ onBeforeUnmount(() => {
 .monitor-visual.selected {
   border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.08);
-}
-
-.monitor-frame {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .monitor-preview-stage {
@@ -555,6 +847,15 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+.monitor-preview-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
 .monitor-preview-word {
   font-size: clamp(20px, 14%, 44px);
   font-weight: 700;
@@ -563,45 +864,24 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.16);
 }
 
-
-.monitor-meta {
-  position: relative;
-  z-index: 1;
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  display: grid;
-  gap: 2px;
-}
-
 .monitor-name {
   font-size: 12px;
   line-height: 1.25;
 }
 
 .monitor-short,
-.monitor-size {
+.monitor-size,
+.monitor-index {
   font-size: 10px;
   color: rgba(194, 196, 201, 0.78);
 }
 
-.monitor-size {
-  position: absolute;
-  z-index: 1;
-  left: 12px;
-  bottom: 12px;
-}
-
 .monitor-remove {
-  position: absolute;
-  z-index: 1;
-  right: 12px;
-  bottom: 12px;
   border: 0;
   background: transparent;
   color: rgba(255, 154, 154, 0.94);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 400;
   padding: 0;
   cursor: pointer;
   opacity: 0;
@@ -614,9 +894,9 @@ onBeforeUnmount(() => {
   outline: none;
 }
 
-.monitor-visual:hover .monitor-remove,
-.monitor-visual:focus-visible .monitor-remove,
-.monitor-visual.selected .monitor-remove {
+.monitor-stack:hover .monitor-remove,
+.monitor-stack:focus-within .monitor-remove,
+.monitor-visual.selected+.monitor-stack-bottom .monitor-remove {
   opacity: 1;
   pointer-events: auto;
 }

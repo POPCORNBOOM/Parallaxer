@@ -24,6 +24,7 @@ const configurations: ConfigurationRecord[] = [
     id: 'config-1',
     name: 'Main Wall',
     description: 'Primary display layout',
+    favorite: false,
     monitors: []
   }
 ];
@@ -57,6 +58,48 @@ describe('sidebar helpers', () => {
     expect(model.listItems.monitors[0]?.key).toBe('monitor-1');
     expect(model.listItems.playlists[0]?.selected).toBe(true);
     expect(model.tailButtons.map((item) => item.key)).toEqual(['settings']);
+    expect(model.listItems.configurations[0]?.hoverHead?.key).toBe('favorite');
+  });
+
+  test('favorites in configurations are rendered as pinned head actions', () => {
+    const model = buildSidebarModel({
+      monitors,
+      configurations: [
+        { ...configurations[0], id: 'config-2', name: 'Zeta', favorite: false },
+        { ...configurations[0], id: 'config-1', name: 'Alpha', favorite: true }
+      ],
+      playlists,
+      currentPage: 'configuration',
+      selectedMonitorId: null,
+      selectedConfigurationId: 'config-1',
+      selectedPlaylistId: null
+    });
+
+    expect(model.listItems.configurations[0]?.key).toBe('config-1');
+    expect(model.listItems.configurations[0]?.head?.icon).toBe('mdi-star');
+    expect(model.listItems.configurations[0]?.head?.key).toBe('favorite');
+  });
+
+  test('favorites in playlists are rendered as pinned head actions and playlists show remove action on hover', () => {
+    const model = buildSidebarModel({
+      monitors,
+      configurations,
+      playlists: [
+        { ...playlists[0], id: 'playlist-2', name: 'Zeta' },
+        { ...playlists[0], id: 'playlist-1', name: 'Alpha', favorite: true } as PlaylistRecord
+      ],
+      currentPage: 'playlist',
+      selectedMonitorId: null,
+      selectedConfigurationId: null,
+      selectedPlaylistId: 'playlist-1'
+    });
+
+    expect(model.listItems.playlists[0]?.key).toBe('playlist-1');
+    expect(model.listItems.playlists[0]?.head?.icon).toBe('mdi-star');
+    expect(Array.isArray(model.listItems.playlists[0]?.hoverTail)).toBe(true);
+    expect(
+      (model.listItems.playlists[0]?.hoverTail as { key?: string }[]).some((action) => action.key === 'remove')
+    ).toBe(true);
   });
 
   test('resolves sidebar selection keys back to page and id', () => {

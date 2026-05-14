@@ -61,6 +61,10 @@ function iconClasses(icon: string): string[] {
   const tokens = icon.split(/\s+/).filter(Boolean);
   return tokens.includes('mdi') ? tokens : ['mdi', ...tokens];
 }
+
+function iconStyle(color?: string): { color?: string } | undefined {
+  return color ? { color } : undefined;
+}
 </script>
 
 <template>
@@ -92,7 +96,7 @@ function iconClasses(icon: string): string[] {
               :title="action.hoverTip"
               @click="action.key && emit('list-button-clicked', list.key, null, action.key)"
             >
-              <i :class="iconClasses(action.icon)" />
+              <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
             </button>
           </div>
         </div>
@@ -110,7 +114,24 @@ function iconClasses(icon: string): string[] {
           @click="emit('list-selection-changed', list.key, item.key)"
         >
           <span class="shell-sidebar-item-head">
-            <i v-if="item.head" :class="iconClasses(item.head.icon)" />
+            <button
+              v-if="item.head"
+              class="shell-sidebar-action shell-sidebar-head-action shell-sidebar-head-base"
+              type="button"
+              :title="item.head.hoverTip"
+              @click.stop="item.head.key && emit('list-button-clicked', list.key, item.key, item.head.key)"
+            >
+              <i :class="iconClasses(item.head.icon)" :style="iconStyle(item.head.color)" />
+            </button>
+            <button
+              v-if="item.hoverHead"
+              class="shell-sidebar-action shell-sidebar-head-action shell-sidebar-head-hover"
+              type="button"
+              :title="item.hoverHead.hoverTip"
+              @click.stop="item.hoverHead.key && emit('list-button-clicked', list.key, item.key, item.hoverHead.key)"
+            >
+              <i :class="iconClasses(item.hoverHead.icon)" :style="iconStyle(item.hoverHead.color)" />
+            </button>
           </span>
           <span v-if="!collapsed" class="shell-sidebar-item-body">
             <span class="shell-sidebar-item-title">{{ item.title }}</span>
@@ -123,7 +144,7 @@ function iconClasses(icon: string): string[] {
                     :title="item.tail.hoverTip"
                     @click.stop="item.tail.key && emit('list-button-clicked', list.key, item.key, item.tail.key)"
                   >
-                    <i :class="iconClasses(item.tail.icon)" />
+                    <i :class="iconClasses(item.tail.icon)" :style="iconStyle(item.tail.color)" />
                   </button>
                 </template>
                 <span v-else class="shell-sidebar-tail-text">{{ item.tail }}</span>
@@ -142,7 +163,7 @@ function iconClasses(icon: string): string[] {
                     :title="action.hoverTip"
                     @click.stop="action.key && emit('list-button-clicked', list.key, item.key, action.key)"
                   >
-                    <i :class="iconClasses(action.icon)" />
+                    <i :class="iconClasses(action.icon)" :style="iconStyle(action.color)" />
                   </button>
                 </template>
               </span>

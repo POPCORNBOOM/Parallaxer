@@ -12,6 +12,7 @@ export interface SidebarAction {
   key?: string;
   hoverTip?: string;
   icon: string;
+  color?: string;
 }
 
 export interface SidebarButton {
@@ -72,6 +73,21 @@ export function buildSidebarModel(args: {
     selectedPlaylistId
   } = args;
 
+  const sortedConfigurations = [...configurations].sort(
+    (left, right) =>
+      Number(Boolean(right.favorite)) - Number(Boolean(left.favorite)) ||
+      (left.name || '').localeCompare(right.name || '') ||
+      left.id.localeCompare(right.id)
+  );
+
+  const sortedPlaylists = [...playlists].sort(
+    (left, right) =>
+      Number(Boolean((right as { favorite?: boolean }).favorite)) -
+        Number(Boolean((left as { favorite?: boolean }).favorite)) ||
+      (left.name || '').localeCompare(right.name || '') ||
+      left.id.localeCompare(right.id)
+  );
+
   return {
     headButtons: [
       {
@@ -125,45 +141,96 @@ export function buildSidebarModel(args: {
       monitors: monitors.map((monitor) => ({
         key: monitor.deviceId,
         selected: currentPage === 'monitor' && selectedMonitorId === monitor.deviceId,
-        head: {
-          icon: monitor.connected ? 'mdi-circle' : 'mdi-history',
-          hoverTip: monitor.connected ? 'Connected' : 'Seen before'
-        },
         title: formatMonitorTitle(monitor),
         tail: monitor.connected ? 'live' : 'history',
-        hoverTail: `${monitor.size.width}x${monitor.size.height}`
+        hoverTail: monitor.connected
+          ? `${monitor.size.width}x${monitor.size.height}`
+          : [
+              {
+                key: 'forget',
+                hoverTip: 'Forget monitor',
+                icon: 'mdi-close',
+                color: 'var(--color-danger-text)'
+              }
+            ]
       })),
-      configurations: configurations.map((configuration) => ({
+      configurations: sortedConfigurations.map((configuration) => ({
         key: configuration.id,
         selected: currentPage === 'configuration' && selectedConfigurationId === configuration.id,
-        head: {
-          icon: 'mdi-view-quilt-outline',
-          hoverTip: 'Configuration'
-        },
+        head: configuration.favorite
+          ? {
+              key: 'favorite',
+              icon: 'mdi-star',
+              hoverTip: 'Unfavorite configuration',
+              color: 'var(--color-warning-text, #f4cf64)'
+            }
+          : undefined,
+        hoverHead: !configuration.favorite
+          ? {
+              key: 'favorite',
+              icon: 'mdi-star-outline',
+              hoverTip: 'Favorite configuration',
+              color: 'var(--color-text-tertiary)'
+            }
+          : {
+              key: 'favorite',
+              icon: 'mdi-star',
+              hoverTip: 'Unfavorite configuration',
+              color: 'var(--color-warning-text, #f4cf64)'
+            },
         title: configuration.name || 'Untitled configuration',
-        tail: `${configuration.monitors.length} mon`,
+        tail: `${configuration.monitors.length} monitors`,
         hoverTail: [
+          {
+            key: 'duplicate',
+            hoverTip: 'Duplicate configuration',
+            icon: 'mdi-content-copy'
+          },
           {
             key: 'delete',
             hoverTip: 'Delete configuration',
-            icon: 'mdi-delete-outline'
+            icon: 'mdi-delete-outline',
+            color: 'var(--color-danger-text)'
           }
         ]
       })),
-      playlists: playlists.map((playlist) => ({
+      playlists: sortedPlaylists.map((playlist) => ({
         key: playlist.id,
         selected: currentPage === 'playlist' && selectedPlaylistId === playlist.id,
-        head: {
-          icon: 'mdi-playlist-star',
-          hoverTip: 'Playlist'
-        },
+        head: (playlist as PlaylistRecord & { favorite?: boolean }).favorite
+          ? {
+              key: 'favorite',
+              icon: 'mdi-star',
+              hoverTip: 'Unfavorite playlist',
+              color: 'var(--color-warning-text, #f4cf64)'
+            }
+          : undefined,
+        hoverHead: !(playlist as PlaylistRecord & { favorite?: boolean }).favorite
+          ? {
+              key: 'favorite',
+              icon: 'mdi-star-outline',
+              hoverTip: 'Favorite playlist',
+              color: 'var(--color-text-tertiary)'
+            }
+          : {
+              key: 'favorite',
+              icon: 'mdi-star',
+              hoverTip: 'Unfavorite playlist',
+              color: 'var(--color-warning-text, #f4cf64)'
+            },
         title: playlist.name || 'Untitled playlist',
-        tail: `${playlist.entries.length}`,
+        tail: `${playlist.entries.length} items`,
         hoverTail: [
           {
             key: 'scan',
             hoverTip: 'Rescan folder',
             icon: 'mdi-refresh'
+          },
+          {
+            key: 'remove',
+            hoverTip: 'Remove from sidebar',
+            icon: 'mdi-close',
+            color: 'var(--color-danger-text)'
           }
         ]
       }))

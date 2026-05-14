@@ -91,8 +91,10 @@ struct MonitorOverride {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 struct AppSettings {
     monitor_overrides: BTreeMap<String, MonitorOverride>,
+    monitor_history: Vec<MonitorRecord>,
     recent_playlist_folders: Vec<String>,
     cache: BTreeMap<String, Value>,
     last_selected_page: Option<String>,
@@ -104,6 +106,7 @@ struct AppSettings {
 struct MonitorMapping {
     rotation: u16,
     mirror: String,
+    fit: Option<String>,
     scale: Option<f64>,
     offset_x: Option<f64>,
     offset_y: Option<f64>,
@@ -124,6 +127,7 @@ struct ConfigurationRecord {
     id: String,
     name: String,
     description: String,
+    favorite: Option<bool>,
     monitors: Vec<ConfigurationMonitor>,
 }
 
@@ -133,6 +137,7 @@ struct PlaylistMonitorEntry {
     exists: bool,
     relative_path: String,
     info: Option<String>,
+    shared_slice: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -173,9 +178,18 @@ struct PresentationDisplayPayload {
     device_id: String,
     asset_path: String,
     relative_path: String,
+    slice: Option<PresentationSlice>,
     frame: Option<Size>,
     mapping: MonitorMapping,
     selected: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct PresentationSlice {
+    axis: String,
+    index: usize,
+    total: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -193,6 +207,7 @@ struct PresentationPayload {
 #[derive(Debug, Clone, Default)]
 struct PlatformMonitorMetadata {
     stable_device_id: Option<String>,
+    instance_key: Option<String>,
     system_name: Option<String>,
     friendly_name: Option<String>,
     refresh_rate: Option<u32>,
@@ -200,12 +215,6 @@ struct PlatformMonitorMetadata {
     product_code: Option<String>,
     serial_number: Option<String>,
     edid: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ScannedFolder {
-    folder_exists: bool,
-    files: BTreeMap<String, String>,
 }
 
 fn normalize_path(path: &Path) -> String {
@@ -256,6 +265,44 @@ fn normalize_identity_segment(value: &str) -> String {
     }
 }
 
+fn normalize_monitor_instance_key(value: &str) -> String {
+    let value = value.trim().replace('/', "\\").to_ascii_uppercase();
+    let value = value
+        .trim_start_matches("\\\\?\\")
+        .replace('#', "\\")
+        .replace("{", "\\{");
+    let value = value
+        .split("\\{")
+        .next()
+        .unwrap_or(&value)
+        .trim_end_matches('\\')
+        .to_string();
+
+    if let Some((prefix, suffix)) = value.rsplit_once('_') {
+        if suffix.chars().all(|character| character.is_ascii_digit()) {
+            return prefix.to_string();
+        }
+    }
+
+    value
+}
+
+fn normalize_display_name_key(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("\\\\.\\")
+        .to_ascii_uppercase()
+}
+
+fn build_monitor_geometry_lookup_key(
+    position_x: i32,
+    position_y: i32,
+    width: u32,
+    height: u32,
+) -> String {
+    format!("{position_x}:{position_y}:{width}:{height}")
+}
+
 fn build_serial_product_device_id(metadata: &PlatformMonitorMetadata) -> Option<String> {
     let product_code = metadata.product_code.as_deref()?.trim();
     let serial_number = metadata.serial_number.as_deref()?.trim();
@@ -290,6 +337,95 @@ fn build_edid_device_id(metadata: &PlatformMonitorMetadata) -> Option<String> {
         normalize_identity_segment(manufacturer),
         normalize_identity_segment(product_code),
         normalize_identity_segment(serial_number)
+    ))
+}
+
+fn build_device_instance_suffix(instance_key: &str) -> Option<String> {
+    let normalized = normalize_monitor_instance_key(instance_key);
+    let suffix = normalized
+        .rsplit('\\')
+        .next()
+        .filter(|value| !value.trim().is_empty())?;
+    Some(normalize_identity_segment(suffix))
+}
+
+fn disambiguate_device_id(
+    base_device_id: &str,
+    metadata: &PlatformMonitorMetadata,
+    position: &Position,
+    size: &Size,
+) -> String {
+    if let Some(instance_key) = metadata.instance_key.as_deref() {
+        if let Some(instance_suffix) = build_device_instance_suffix(instance_key) {
+            return format!("{base_device_id}@{instance_suffix}");
+        }
+    }
+
+    format!(
+        "{base_device_id}@{}",
+        normalize_identity_segment(&format!(
+            "{}-{}-{}-{}",
+            position.x, position.y, size.width, size.height
+        ))
+    )
+}
+
+fn parse_edid_manufacturer_id(raw: u16) -> Option<String> {
+    let first = ((raw >> 10) & 0x1f) as u8;
+    let second = ((raw >> 5) & 0x1f) as u8;
+    let third = (raw & 0x1f) as u8;
+    let letters = [first, second, third]
+        .into_iter()
+        .map(|value| {
+            if (1..=26).contains(&value) {
+                Some((b'A' + value - 1) as char)
+            } else {
+                None
+            }
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    Some(letters.into_iter().collect())
+}
+
+fn encode_edid_hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
+}
+
+fn parse_edid_identity(bytes: &[u8]) -> Option<(String, String, String)> {
+    if bytes.len() < 128 {
+        return None;
+    }
+
+    let header = [0x00_u8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
+    if bytes[..8] != header {
+        return None;
+    }
+
+    let manufacturer_raw = u16::from_be_bytes([bytes[8], bytes[9]]);
+    let manufacturer = parse_edid_manufacturer_id(manufacturer_raw)?;
+    let product_code = format!("{:04x}", u16::from_le_bytes([bytes[10], bytes[11]]));
+    let serial = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+    let serial_number = if serial == 0 {
+        encode_edid_hex(&bytes[12..16])
+    } else {
+        serial.to_string()
+    };
+
+    Some((manufacturer, product_code, serial_number))
+}
+
+fn build_edid_device_id_from_bytes(bytes: &[u8]) -> Option<String> {
+    let (manufacturer, product_code, serial_number) = parse_edid_identity(bytes)?;
+
+    Some(format!(
+        "edid:{}:{}:{}",
+        normalize_identity_segment(&manufacturer),
+        normalize_identity_segment(&product_code),
+        normalize_identity_segment(&serial_number)
     ))
 }
 
@@ -367,10 +503,34 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     fs::write(path, content).map_err(|error| error.to_string())
 }
 
-fn collect_media_files(base: &Path, short_name: &str) -> Result<ScannedFolder, String> {
+fn collect_media_files(base: &Path) -> Result<BTreeMap<String, String>, String> {
+    let mut files = BTreeMap::new();
+    let entries = fs::read_dir(base).map_err(|error| error.to_string())?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if !path.is_file() || !is_supported_media_file(&path) {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        files.insert(file_name.to_string(), file_name.to_string());
+    }
+
+    Ok(files)
+}
+
+fn collect_media_files_for_short_name(
+    base: &Path,
+    short_name: &str,
+) -> Result<BTreeMap<String, String>, String> {
     let target = base.join(short_name);
     if !target.exists() {
-        return Ok(ScannedFolder::default());
+        return Ok(BTreeMap::new());
     }
 
     if !target.is_dir() {
@@ -394,26 +554,7 @@ fn collect_media_files(base: &Path, short_name: &str) -> Result<ScannedFolder, S
         files.insert(file_name.to_string(), format!("{short_name}/{file_name}"));
     }
 
-    Ok(ScannedFolder {
-        folder_exists: true,
-        files,
-    })
-}
-
-fn unique_short_names(short_names: Vec<String>) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    for short_name in short_names {
-        let trimmed = short_name.trim();
-        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
-            continue;
-        }
-
-        result.push(trimmed.to_string());
-    }
-
-    result
+    Ok(files)
 }
 
 fn build_playlist_message(
@@ -432,7 +573,7 @@ fn build_playlist_message(
         PlaylistEntryStatus::PartialMissing => format!("Missing on: {}", missing.join(", ")),
         PlaylistEntryStatus::MissingAll => {
             if monitor_count == 0 {
-                "No monitor folders configured".to_string()
+                "No monitors configured".to_string()
             } else {
                 format!("Missing on all monitors: {}", missing.join(", "))
             }
@@ -442,7 +583,8 @@ fn build_playlist_message(
 
 fn build_playlist_entries(
     source_folder: &str,
-    short_names: &[String],
+    mapping_mode: &str,
+    monitors: &[ConfigurationMonitor],
     previous_entries: &[PlaylistEntry],
 ) -> Result<Vec<PlaylistEntry>, String> {
     let trimmed_source_folder = source_folder.trim();
@@ -463,16 +605,46 @@ fn build_playlist_entries(
         ));
     }
 
-    let mut scanned_by_monitor = BTreeMap::new();
-    let mut discovered_names = BTreeSet::new();
+    let (discovered_names, per_monitor_files, shared_root_files) = if mapping_mode
+        == "same-folder-shared-files"
+    {
+        let scanned_files = collect_media_files(&base)?;
+        let discovered_names = scanned_files.keys().cloned().collect::<Vec<_>>();
+        let per_monitor_files = monitors
+            .iter()
+            .map(|monitor| (monitor.device_id.clone(), scanned_files.clone()))
+            .collect::<BTreeMap<_, _>>();
+        (
+            discovered_names,
+            per_monitor_files,
+            scanned_files
+                .iter()
+                .map(|(file_name, relative_path)| (file_name.clone(), relative_path.clone()))
+                .collect::<BTreeMap<_, _>>(),
+        )
+    } else {
+        let mut discovered_names = BTreeSet::new();
+        let mut per_monitor_files = BTreeMap::new();
+        let shared_root_files = collect_media_files(&base)?;
 
-    for short_name in short_names {
-        let scanned = collect_media_files(&base, short_name)?;
-        for file_name in scanned.files.keys() {
+        for monitor in monitors {
+            let scanned_files = collect_media_files_for_short_name(&base, &monitor.short_name)?;
+            for file_name in scanned_files.keys() {
+                discovered_names.insert(file_name.clone());
+            }
+            per_monitor_files.insert(monitor.device_id.clone(), scanned_files);
+        }
+
+        for file_name in shared_root_files.keys() {
             discovered_names.insert(file_name.clone());
         }
-        scanned_by_monitor.insert(short_name.clone(), scanned);
-    }
+
+        (
+            discovered_names.into_iter().collect::<Vec<_>>(),
+            per_monitor_files,
+            shared_root_files,
+        )
+    };
 
     let previous_visibility = previous_entries
         .iter()
@@ -483,49 +655,61 @@ fn build_playlist_entries(
 
     for file_name in discovered_names {
         let mut per_monitor = BTreeMap::new();
-        let mut ready_count = 0usize;
         let mut missing_monitors = Vec::new();
-
-        for short_name in short_names {
-            let scanned = scanned_by_monitor
-                .get(short_name)
-                .expect("shortName must exist");
-            if let Some(relative_path) = scanned.files.get(&file_name) {
-                ready_count += 1;
+        for monitor in monitors {
+            let dedicated_relative_path = per_monitor_files
+                .get(&monitor.device_id)
+                .and_then(|files| files.get(&file_name))
+                .cloned()
+                .unwrap_or_default();
+            let shared_relative_path = shared_root_files.get(&file_name).cloned().unwrap_or_default();
+            let (relative_path, shared_slice) = if !dedicated_relative_path.is_empty() {
+                (dedicated_relative_path, false)
+            } else if !shared_relative_path.is_empty() {
+                (shared_relative_path, true)
+            } else {
+                (String::new(), false)
+            };
+            let exists = !relative_path.is_empty();
+            if exists {
                 per_monitor.insert(
-                    short_name.clone(),
+                    monitor.device_id.clone(),
                     PlaylistMonitorEntry {
                         exists: true,
                         relative_path: relative_path.clone(),
-                        info: None,
-                    },
-                );
-            } else {
-                missing_monitors.push(short_name.clone());
-                per_monitor.insert(
-                    short_name.clone(),
-                    PlaylistMonitorEntry {
-                        exists: false,
-                        relative_path: String::new(),
-                        info: Some(if scanned.folder_exists {
-                            format!("File not found in {short_name}")
+                        info: if shared_slice {
+                            Some("shared-horizontal-slice".to_string())
                         } else {
-                            format!("Folder not found: {short_name}")
-                        }),
+                            None
+                        },
+                        shared_slice: if shared_slice { Some(true) } else { None },
                     },
                 );
+                continue;
             }
+
+            missing_monitors.push(monitor.short_name.clone());
+            per_monitor.insert(
+                monitor.device_id.clone(),
+                PlaylistMonitorEntry {
+                    exists: false,
+                    relative_path: String::new(),
+                    info: Some(format!("File not found: {file_name}")),
+                    shared_slice: None,
+                },
+            );
         }
 
-        let status = if short_names.is_empty() || ready_count == 0 {
+        let ready_count = per_monitor.values().filter(|entry| entry.exists).count();
+        let status = if monitors.is_empty() || ready_count == 0 {
             PlaylistEntryStatus::MissingAll
-        } else if ready_count == short_names.len() {
+        } else if ready_count == monitors.len() {
             PlaylistEntryStatus::Ready
         } else {
             PlaylistEntryStatus::PartialMissing
         };
 
-        let message = build_playlist_message(&status, &missing_monitors, short_names.len());
+        let message = build_playlist_message(&status, &missing_monitors, monitors.len());
         let visibility = previous_visibility
             .get(&file_name)
             .copied()
@@ -643,6 +827,23 @@ fn list_monitor_records(app: &AppHandle) -> Result<Vec<MonitorRecord>, String> {
         .map_err(|error| error.to_string())?;
     let metadata = platform_monitor_metadata(&monitors);
     let last_seen_at = current_timestamp_string();
+    let mut base_device_ids = Vec::with_capacity(monitors.len());
+    let mut duplicate_counts = BTreeMap::<String, usize>::new();
+
+    for (index, monitor) in monitors.iter().enumerate() {
+        let position = *monitor.position();
+        let size = *monitor.size();
+        let metadata = metadata.get(index).cloned().unwrap_or_default();
+        let base_device_id = metadata
+            .stable_device_id
+            .clone()
+            .or_else(|| build_edid_device_id(&metadata))
+            .or_else(|| build_serial_product_device_id(&metadata))
+            .unwrap_or_else(|| build_geometry_device_id(&position, &size));
+        *duplicate_counts.entry(base_device_id.clone()).or_default() += 1;
+        base_device_ids.push(base_device_id);
+    }
+
     let mut result = Vec::with_capacity(monitors.len());
 
     for (index, monitor) in monitors.iter().enumerate() {
@@ -660,12 +861,26 @@ fn list_monitor_records(app: &AppHandle) -> Result<Vec<MonitorRecord>, String> {
             .clone()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| system_name.clone());
-        let device_id = metadata
-            .stable_device_id
-            .clone()
-            .or_else(|| build_edid_device_id(&metadata))
-            .or_else(|| build_serial_product_device_id(&metadata))
+        let base_device_id = base_device_ids
+            .get(index)
+            .cloned()
             .unwrap_or_else(|| build_geometry_device_id(&position, &size));
+        let device_id = if duplicate_counts.get(&base_device_id).copied().unwrap_or(0) > 1 {
+            disambiguate_device_id(
+                &base_device_id,
+                &metadata,
+                &Position {
+                    x: position.x,
+                    y: position.y,
+                },
+                &Size {
+                    width: size.width,
+                    height: size.height,
+                },
+            )
+        } else {
+            base_device_id
+        };
 
         result.push(MonitorRecord {
             device_id,
@@ -714,6 +929,21 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
 
 #[cfg(windows)]
 fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMonitorMetadata> {
+    use std::collections::HashMap;
+    use std::mem;
+
+    use windows::Win32::Devices::Display::{
+        DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME, DISPLAYCONFIG_DEVICE_INFO_HEADER,
+        DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_MODE_INFO,
+        DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE, DISPLAYCONFIG_PATH_INFO,
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME, DISPLAYCONFIG_TARGET_DEVICE_NAME,
+        DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS,
+        QDC_VIRTUAL_MODE_AWARE, QueryDisplayConfig,
+    };
+    use windows::Win32::Foundation::{RPC_E_CHANGED_MODE, WIN32_ERROR};
+    use windows::Win32::Graphics::Gdi::{DISPLAY_DEVICEW, EnumDisplayDevicesW};
+    use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
+    use windows::core::PCWSTR;
     use wmi::{COMLibrary, WMIConnection};
 
     #[derive(Debug, Deserialize)]
@@ -738,6 +968,20 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
         user_friendly_name: Option<Vec<u16>>,
     }
 
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct WmiDescriptorMethodRow {
+        __path: String,
+        instance_name: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct WmiGetMonitorRawEEdidV1BlockOutput {
+        block_content: Option<Vec<u8>>,
+        return_value: u32,
+    }
+
     fn decode_monitor_string(values: Option<Vec<u16>>) -> Option<String> {
         let values = values?;
         let mut output = String::new();
@@ -756,26 +1000,259 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
         }
     }
 
-    fn normalize_pnp_key(value: &str) -> String {
-        let value = value.trim().replace('/', "\\").to_ascii_uppercase();
-        if let Some((prefix, suffix)) = value.rsplit_once('_') {
-            if suffix.chars().all(|character| character.is_ascii_digit()) {
-                return prefix.to_string();
+    fn decode_utf16_null_terminated(values: &[u16]) -> Option<String> {
+        let end = values.iter().position(|value| *value == 0).unwrap_or(values.len());
+        let decoded = String::from_utf16_lossy(&values[..end]).trim().to_string();
+        if decoded.is_empty() {
+            None
+        } else {
+            Some(decoded)
+        }
+    }
+
+    fn build_active_path_geometry_pnp_maps(
+    ) -> (
+        BTreeMap<String, String>,
+        BTreeMap<String, String>,
+    ) {
+        let mut by_display_name = read_active_pnp_keys_by_enum_display_devices();
+        let mut by_geometry = BTreeMap::new();
+        let mut path_count = 0_u32;
+        let mut mode_count = 0_u32;
+        let flags = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE;
+        if unsafe { GetDisplayConfigBufferSizes(flags, &mut path_count, &mut mode_count) }
+            != WIN32_ERROR(0)
+        {
+            return (by_display_name, by_geometry);
+        }
+
+        let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
+        let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
+        if unsafe {
+            QueryDisplayConfig(
+                flags,
+                &mut path_count,
+                paths.as_mut_ptr(),
+                &mut mode_count,
+                modes.as_mut_ptr(),
+                None,
+            )
+        } != WIN32_ERROR(0)
+        {
+            return (by_display_name, by_geometry);
+        }
+
+        paths.truncate(path_count as usize);
+        modes.truncate(mode_count as usize);
+
+        let source_modes = modes
+            .iter()
+            .filter(|mode| mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
+            .map(|mode| {
+                (
+                    (mode.adapterId.LowPart, mode.adapterId.HighPart, mode.id),
+                    unsafe { mode.Anonymous.sourceMode },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        for path in paths {
+            let source_key = (
+                path.sourceInfo.adapterId.LowPart,
+                path.sourceInfo.adapterId.HighPart,
+                path.sourceInfo.id,
+            );
+            let Some(source_mode) = source_modes.get(&source_key) else {
+                continue;
+            };
+
+            let mut source_name = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                    size: std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32,
+                    adapterId: path.sourceInfo.adapterId,
+                    id: path.sourceInfo.id,
+                },
+                ..Default::default()
+            };
+
+            if unsafe { DisplayConfigGetDeviceInfo(&mut source_name.header) } != 0 {
+                continue;
+            }
+
+            let Some(view_gdi_device_name) =
+                decode_utf16_null_terminated(&source_name.viewGdiDeviceName)
+            else {
+                continue;
+            };
+
+            let mut target_name = DISPLAYCONFIG_TARGET_DEVICE_NAME {
+                header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                    r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+                    size: std::mem::size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32,
+                    adapterId: path.targetInfo.adapterId,
+                    id: path.targetInfo.id,
+                },
+                ..Default::default()
+            };
+
+            if unsafe { DisplayConfigGetDeviceInfo(&mut target_name.header) } != 0 {
+                continue;
+            }
+
+            let Some(monitor_device_path) =
+                decode_utf16_null_terminated(&target_name.monitorDevicePath)
+            else {
+                continue;
+            };
+
+            let normalized = normalize_monitor_instance_key(&monitor_device_path);
+            let normalized_display_name = normalize_display_name_key(&view_gdi_device_name);
+            by_display_name.insert(normalized_display_name, normalized.clone());
+
+            let geometry_key = build_monitor_geometry_lookup_key(
+                source_mode.position.x,
+                source_mode.position.y,
+                source_mode.width,
+                source_mode.height,
+            );
+            by_geometry.insert(geometry_key, normalized);
+        }
+
+        (by_display_name, by_geometry)
+    }
+
+    fn read_active_pnp_keys_by_enum_display_devices() -> BTreeMap<String, String> {
+        let mut result = BTreeMap::new();
+        let mut adapter_index = 0_u32;
+
+        loop {
+            let mut adapter = DISPLAY_DEVICEW {
+                cb: mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                ..Default::default()
+            };
+
+            if !unsafe { EnumDisplayDevicesW(PCWSTR::null(), adapter_index, &mut adapter, 0) }
+                .as_bool()
+            {
+                break;
+            }
+
+            let Some(adapter_name) = decode_utf16_null_terminated(&adapter.DeviceName) else {
+                adapter_index += 1;
+                continue;
+            };
+
+            let mut monitor_index = 0_u32;
+            loop {
+                let mut monitor = DISPLAY_DEVICEW {
+                    cb: mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                    ..Default::default()
+                };
+
+                if !unsafe {
+                    EnumDisplayDevicesW(
+                        PCWSTR(adapter.DeviceName.as_ptr()),
+                        monitor_index,
+                        &mut monitor,
+                        EDD_GET_DEVICE_INTERFACE_NAME,
+                    )
+                }
+                .as_bool()
+                {
+                    break;
+                }
+
+                let monitor_key = decode_utf16_null_terminated(&monitor.DeviceID)
+                    .or_else(|| decode_utf16_null_terminated(&monitor.DeviceKey))
+                    .map(|value| normalize_monitor_instance_key(&value));
+
+                if let Some(monitor_key) = monitor_key {
+                    result.insert(normalize_display_name_key(&adapter_name), monitor_key);
+                }
+
+                monitor_index += 1;
+            }
+
+            adapter_index += 1;
+        }
+
+        result
+    }
+
+    fn read_edid_bytes_by_instance(root_wmi: &WMIConnection) -> BTreeMap<String, Vec<u8>> {
+        let descriptor_rows = root_wmi
+            .raw_query::<WmiDescriptorMethodRow>(
+                "SELECT __PATH, InstanceName FROM WmiMonitorDescriptorMethods",
+            )
+            .unwrap_or_default();
+
+        let mut edid_by_instance = BTreeMap::new();
+
+        for row in descriptor_rows {
+            let Some(instance_name) = row.instance_name.as_deref() else {
+                continue;
+            };
+
+            let normalized_instance = normalize_monitor_instance_key(instance_name);
+            let mut edid = Vec::new();
+
+            for block_id in 0_u8..=3 {
+                let Ok(output) = root_wmi.exec_method_native_wrapper(
+                    "WmiMonitorDescriptorMethods",
+                    &row.__path,
+                    "WmiGetMonitorRawEEdidV1Block",
+                    HashMap::from([(
+                        "BlockId".to_string(),
+                        wmi::Variant::UI1(block_id),
+                    )]),
+                ) else {
+                    break;
+                };
+
+                let Some(output) = output else {
+                    break;
+                };
+
+                let Ok(output) = output.into_desr::<WmiGetMonitorRawEEdidV1BlockOutput>() else {
+                    break;
+                };
+
+                if output.return_value != 0 {
+                    break;
+                }
+
+                let Some(block_content) = output.block_content else {
+                    break;
+                };
+
+                if block_content.len() != 128 {
+                    break;
+                }
+
+                edid.extend(block_content);
+            }
+
+            if !edid.is_empty() {
+                edid_by_instance.insert(normalized_instance, edid);
             }
         }
-        value
+
+        edid_by_instance
     }
 
     let mut fallback = vec![PlatformMonitorMetadata::default(); monitors.len()];
-    let Ok(com_library) = COMLibrary::new() else {
-        return fallback;
+    let com_library = match COMLibrary::new() {
+        Ok(com_library) => com_library,
+        Err(wmi::WMIError::HResultError { hres }) if hres == RPC_E_CHANGED_MODE.0 => unsafe {
+            COMLibrary::assume_initialized()
+        },
+        Err(_) => return fallback,
     };
     let Ok(cimv2) = WMIConnection::new(com_library) else {
         return fallback;
     };
-    let Ok(root_wmi) = WMIConnection::with_namespace_path("ROOT\\WMI", unsafe {
-        COMLibrary::assume_initialized()
-    }) else {
+    let Ok(root_wmi) = WMIConnection::with_namespace_path("ROOT\\WMI", com_library) else {
         return fallback;
     };
 
@@ -789,12 +1266,15 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
             "SELECT InstanceName, ManufacturerName, ProductCodeID, SerialNumberID, UserFriendlyName FROM WmiMonitorID",
         )
         .unwrap_or_default();
+    let edid_by_instance = read_edid_bytes_by_instance(&root_wmi);
+    let (active_pnp_by_display_name, active_pnp_by_geometry) =
+        build_active_path_geometry_pnp_maps();
 
     let mut ids_by_pnp = BTreeMap::new();
     for row in wmi_rows {
         if let Some(instance_name) = row.instance_name.as_deref() {
             ids_by_pnp.insert(
-                normalize_pnp_key(instance_name),
+                normalize_monitor_instance_key(instance_name),
                 (
                     decode_monitor_string(row.manufacturer_name),
                     decode_monitor_string(row.product_code_id),
@@ -814,7 +1294,10 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
 
     let mut candidates = Vec::new();
     for row in desktop_rows {
-        let normalized_pnp = row.pnp_device_id.as_deref().map(normalize_pnp_key);
+        let normalized_pnp = row
+            .pnp_device_id
+            .as_deref()
+            .map(normalize_monitor_instance_key);
         let identity = normalized_pnp
             .as_ref()
             .and_then(|key| ids_by_pnp.get(key))
@@ -833,9 +1316,17 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
             .or_else(|| row.monitor_type.clone())
             .filter(|value| !value.trim().is_empty());
         let system_name = row.name.clone().filter(|value| !value.trim().is_empty());
+        let edid_bytes = normalized_pnp
+            .as_ref()
+            .and_then(|key| edid_by_instance.get(key))
+            .cloned();
         let stable_device_id = {
+            let edid_device_id = edid_bytes
+                .as_deref()
+                .and_then(build_edid_device_id_from_bytes);
             let edid_like = PlatformMonitorMetadata {
                 stable_device_id: None,
+                instance_key: normalized_pnp.clone(),
                 system_name: row.name.clone().filter(|value| !value.trim().is_empty()),
                 friendly_name: identity
                     .3
@@ -851,10 +1342,10 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
                     .filter(|value| !value.trim().is_empty()),
                 product_code: identity.1.clone(),
                 serial_number: identity.2.clone(),
-                edid: row.device_id.clone(),
+                edid: edid_bytes.as_deref().map(encode_edid_hex).or_else(|| row.device_id.clone()),
             };
 
-            build_edid_device_id(&edid_like).or_else(|| {
+            edid_device_id.or_else(|| build_edid_device_id(&edid_like)).or_else(|| {
                 normalized_pnp
                     .as_ref()
                     .map(|value| format!("windows:pnp:{}", value.to_ascii_lowercase()))
@@ -866,13 +1357,14 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
             height: row.screen_height,
             metadata: PlatformMonitorMetadata {
                 stable_device_id,
+                instance_key: normalized_pnp,
                 system_name,
                 friendly_name,
                 refresh_rate: None,
                 manufacturer,
                 product_code: identity.1,
                 serial_number: identity.2,
-                edid: row.device_id,
+                edid: edid_bytes.as_deref().map(encode_edid_hex).or(row.device_id),
             },
         });
     }
@@ -881,7 +1373,55 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
     let mut used_candidates = BTreeSet::new();
 
     for (index, monitor) in monitors.iter().enumerate() {
+        let position = monitor.position();
         let size = monitor.size();
+        let monitor_display_name = monitor
+            .name()
+            .map(|value| normalize_display_name_key(value))
+            .unwrap_or_default();
+        let geometry_key =
+            build_monitor_geometry_lookup_key(position.x, position.y, size.width, size.height);
+        let matched_display_name_pnp =
+            active_pnp_by_display_name.get(&monitor_display_name).cloned();
+        let matched_geometry_pnp = active_pnp_by_geometry.get(&geometry_key).cloned();
+        let matched_pnp_key = matched_display_name_pnp
+            .as_ref()
+            .or(matched_geometry_pnp.as_ref())
+            .cloned();
+        if let Some(pnp_key) = matched_pnp_key.as_ref() {
+            if let Some(identity) = ids_by_pnp.get(pnp_key) {
+                let edid_bytes = edid_by_instance.get(pnp_key).cloned();
+                let manufacturer = identity.0.clone().filter(|value| !value.trim().is_empty());
+                let product_code = identity.1.clone().filter(|value| !value.trim().is_empty());
+                let serial_number = identity.2.clone().filter(|value| !value.trim().is_empty());
+                let stable_device_id = edid_bytes
+                    .as_deref()
+                    .and_then(build_edid_device_id_from_bytes)
+                    .or_else(|| {
+                        build_edid_device_id(&PlatformMonitorMetadata {
+                            manufacturer: manufacturer.clone(),
+                            product_code: product_code.clone(),
+                            serial_number: serial_number.clone(),
+                            ..Default::default()
+                        })
+                    })
+                    .or_else(|| Some(format!("windows:pnp:{}", pnp_key.to_ascii_lowercase())));
+
+                assignments[index] = PlatformMonitorMetadata {
+                    stable_device_id,
+                    instance_key: Some(pnp_key.clone()),
+                    system_name: monitor.name().cloned(),
+                    friendly_name: identity.3.clone().filter(|value| !value.trim().is_empty()),
+                    refresh_rate: None,
+                    manufacturer,
+                    product_code,
+                    serial_number,
+                    edid: edid_bytes.as_deref().map(encode_edid_hex),
+                };
+                continue;
+            }
+        }
+
         let matching_indices = candidates
             .iter()
             .enumerate()
@@ -933,6 +1473,7 @@ fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMo
             used_candidates.insert(candidate_index);
             assignments[index] = candidates[candidate_index].metadata.clone();
         }
+
     }
 
     fallback = assignments;
@@ -976,12 +1517,15 @@ fn list_configurations() -> Result<Vec<ConfigurationRecord>, String> {
             continue;
         }
 
-        let record = read_json::<ConfigurationRecord>(&path).map_err(|error| {
+        let mut record = read_json::<ConfigurationRecord>(&path).map_err(|error| {
             format!(
                 "Failed to read configuration {}: {error}",
                 normalize_path(&path)
             )
         })?;
+        if let Some(stem) = path.file_stem().and_then(|value| value.to_str()) {
+            record.id = stem.to_string();
+        }
         records.push(record);
     }
 
@@ -991,13 +1535,21 @@ fn list_configurations() -> Result<Vec<ConfigurationRecord>, String> {
 
 #[tauri::command]
 fn read_configuration(id: String) -> Result<ConfigurationRecord, String> {
-    read_json(&configuration_file_path(&id)?)
+    let path = configuration_file_path(&id)?;
+    let mut record = read_json::<ConfigurationRecord>(&path)?;
+    record.id = validate_identifier(&id)?;
+    Ok(record)
 }
 
 #[tauri::command]
-fn save_configuration(config: ConfigurationRecord) -> Result<(), String> {
-    let path = configuration_file_path(&config.id)?;
-    write_json(&path, &config)
+fn save_configuration(config: ConfigurationRecord) -> Result<ConfigurationRecord, String> {
+    let storage_id = validate_identifier(&config.id)?;
+    let path = configuration_file_path(&storage_id)?;
+    let mut to_save = config;
+    to_save.id = storage_id.clone();
+    write_json(&path, &to_save)?;
+
+    Ok(to_save)
 }
 
 #[tauri::command]
@@ -1051,12 +1603,13 @@ fn save_playlist(playlist: PlaylistRecord) -> Result<(), String> {
 #[tauri::command]
 fn scan_playlist_folder(
     source_folder: String,
-    short_names: Vec<String>,
+    monitors: Vec<ConfigurationMonitor>,
     previous_entries: Vec<PlaylistEntry>,
 ) -> Result<Vec<PlaylistEntry>, String> {
     build_playlist_entries(
         &source_folder,
-        &unique_short_names(short_names),
+        "same-name-separated-by-shortname",
+        &monitors,
         &previous_entries,
     )
 }
@@ -1165,6 +1718,7 @@ mod tests {
         MonitorMapping {
             rotation: 0,
             mirror: "none".to_string(),
+            fit: Some("contain".to_string()),
             scale: Some(1.0),
             offset_x: Some(0.0),
             offset_y: Some(0.0),
@@ -1186,6 +1740,11 @@ mod tests {
                     device_id: "monitor-left".to_string(),
                     asset_path: "D:/Playlist/left/scene-02.jpg".to_string(),
                     relative_path: "left/scene-02.jpg".to_string(),
+                    slice: None,
+                    frame: Some(Size {
+                        width: 1920,
+                        height: 1080,
+                    }),
                     mapping: sample_mapping(),
                     selected: Some(true),
                 },
@@ -1195,6 +1754,11 @@ mod tests {
                     device_id: "monitor-right".to_string(),
                     asset_path: "D:/Playlist/right/scene-02.jpg".to_string(),
                     relative_path: "right/scene-02.jpg".to_string(),
+                    slice: None,
+                    frame: Some(Size {
+                        width: 1920,
+                        height: 1080,
+                    }),
                     mapping: sample_mapping(),
                     selected: Some(false),
                 },
@@ -1234,6 +1798,82 @@ mod tests {
     }
 
     #[test]
+    fn raw_edid_identity_is_parsed_into_device_id() {
+        let mut edid = vec![0_u8; 128];
+        edid[..8].copy_from_slice(&[0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00]);
+        edid[8] = 0x10;
+        edid[9] = 0xac;
+        edid[10] = 0xb2;
+        edid[11] = 0xa1;
+        edid[12] = 0x78;
+        edid[13] = 0x56;
+        edid[14] = 0x34;
+        edid[15] = 0x12;
+
+        assert_eq!(
+            build_edid_device_id_from_bytes(&edid).as_deref(),
+            Some("edid:del:a1b2:305419896")
+        );
+    }
+
+    #[test]
+    fn raw_edid_zero_serial_falls_back_to_hex() {
+        let mut edid = vec![0_u8; 128];
+        edid[..8].copy_from_slice(&[0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00]);
+        edid[8] = 0x10;
+        edid[9] = 0xac;
+        edid[10] = 0xb2;
+        edid[11] = 0xa1;
+
+        assert_eq!(
+            build_edid_device_id_from_bytes(&edid).as_deref(),
+            Some("edid:del:a1b2:00000000")
+        );
+    }
+
+    #[test]
+    fn normalize_pnp_key_accepts_displayconfig_monitor_device_path() {
+        assert_eq!(
+            normalize_monitor_instance_key(r"\\?\DISPLAY#AUOD2A2#5&1a15d4d8&3&UID256#{E6F07B5F-EE97-4A90-B076-33F57BF4EAA7}"),
+            r"DISPLAY\AUOD2A2\5&1A15D4D8&3&UID256"
+        );
+    }
+
+    #[test]
+    fn normalize_pnp_key_accepts_display_interface_device_id() {
+        assert_eq!(
+            normalize_monitor_instance_key(
+                r"MONITOR\AUOD2A2\{4d36e96e-e325-11ce-bfc1-08002be10318}\0001"
+            ),
+            r"MONITOR\AUOD2A2"
+        );
+    }
+
+    #[test]
+    fn normalize_display_name_key_strips_windows_prefix() {
+        assert_eq!(normalize_display_name_key(r"\\.\DISPLAY66"), "DISPLAY66");
+        assert_eq!(normalize_display_name_key("DISPLAY66"), "DISPLAY66");
+    }
+
+    #[test]
+    fn duplicate_edid_device_ids_are_disambiguated_by_instance_key() {
+        let metadata = PlatformMonitorMetadata {
+            instance_key: Some(r"DISPLAY\TDO5448\9&252835&0&UID257".to_string()),
+            ..Default::default()
+        };
+        let position = Position { x: 3440, y: 0 };
+        let size = Size {
+            width: 720,
+            height: 720,
+        };
+
+        assert_eq!(
+            disambiguate_device_id("edid:tdo:5448:54", &metadata, &position, &size),
+            "edid:tdo:5448:54@9-252835-0-uid257"
+        );
+    }
+
+    #[test]
     fn json_round_trip_uses_pretty_storage() {
         let temp_dir = unique_temp_dir("json-roundtrip");
         let path = temp_dir.join("settings.json");
@@ -1264,17 +1904,12 @@ mod tests {
     }
 
     #[test]
-    fn scan_playlist_folder_merges_previous_visibility_and_statuses() {
+    fn scan_playlist_folder_merges_previous_visibility_and_shared_file_entries() {
         let temp_dir = unique_temp_dir("scan");
-        fs::create_dir_all(temp_dir.join("left")).expect("left dir should exist");
-        fs::create_dir_all(temp_dir.join("right")).expect("right dir should exist");
-        fs::write(temp_dir.join("left").join("scene-01.jpg"), []).expect("scene should be created");
-        fs::write(temp_dir.join("left").join("scene-02.jpg"), []).expect("scene should be created");
-        fs::write(temp_dir.join("left").join("scene-03.jpg"), []).expect("scene should be created");
-        fs::write(temp_dir.join("right").join("scene-01.jpg"), [])
-            .expect("scene should be created");
-        fs::write(temp_dir.join("right").join("scene-03.jpg"), [])
-            .expect("scene should be created");
+        fs::create_dir_all(&temp_dir).expect("temp dir should exist");
+        fs::write(temp_dir.join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("scene-02.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("scene-03.jpg"), []).expect("scene should be created");
 
         let previous_entries = vec![PlaylistEntry {
             file_name: "scene-01.jpg".to_string(),
@@ -1286,7 +1921,35 @@ mod tests {
 
         let result = build_playlist_entries(
             &normalize_path(&temp_dir),
-            &["left".to_string(), "right".to_string()],
+            "same-folder-shared-files",
+            &[
+                ConfigurationMonitor {
+                    device_id: "monitor-left".to_string(),
+                    short_name: "dup".to_string(),
+                    order: 0,
+                    mapping: MonitorMapping {
+                        rotation: 0,
+                        mirror: "none".to_string(),
+                        fit: Some("contain".to_string()),
+                        scale: Some(1.0),
+                        offset_x: Some(0.0),
+                        offset_y: Some(0.0),
+                    },
+                },
+                ConfigurationMonitor {
+                    device_id: "monitor-right".to_string(),
+                    short_name: "dup".to_string(),
+                    order: 1,
+                    mapping: MonitorMapping {
+                        rotation: 0,
+                        mirror: "none".to_string(),
+                        fit: Some("contain".to_string()),
+                        scale: Some(1.0),
+                        offset_x: Some(0.0),
+                        offset_y: Some(0.0),
+                    },
+                },
+            ],
             &previous_entries,
         )
         .expect("scan should succeed");
@@ -1296,15 +1959,15 @@ mod tests {
         assert!(!result[0].visibility);
         assert_eq!(result[0].status, PlaylistEntryStatus::Ready);
         assert_eq!(result[1].file_name, "scene-02.jpg");
-        assert!(!result[1].visibility);
-        assert_eq!(result[1].status, PlaylistEntryStatus::PartialMissing);
+        assert!(result[1].visibility);
+        assert_eq!(result[1].status, PlaylistEntryStatus::Ready);
         assert_eq!(
             result[1]
                 .per_monitor
-                .get("right")
+                .get("monitor-right")
                 .expect("right monitor entry should exist")
                 .exists,
-            false
+            true
         );
         assert_eq!(result[2].file_name, "scene-03.jpg");
         assert!(result[2].visibility);
@@ -1314,8 +1977,182 @@ mod tests {
     }
 
     #[test]
+    fn scan_playlist_folder_supports_short_name_subfolders_and_missing_detection() {
+        let temp_dir = unique_temp_dir("scan-shortname");
+        fs::create_dir_all(temp_dir.join("left")).expect("left dir should exist");
+        fs::create_dir_all(temp_dir.join("right")).expect("right dir should exist");
+        fs::write(temp_dir.join("left").join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("right").join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("left").join("scene-02.jpg"), []).expect("scene should be created");
+
+        let result = build_playlist_entries(
+            &normalize_path(&temp_dir),
+            "same-name-separated-by-shortname",
+            &[
+                ConfigurationMonitor {
+                    device_id: "monitor-left".to_string(),
+                    short_name: "left".to_string(),
+                    order: 0,
+                    mapping: MonitorMapping {
+                        rotation: 0,
+                        mirror: "none".to_string(),
+                        fit: Some("contain".to_string()),
+                        scale: Some(1.0),
+                        offset_x: Some(0.0),
+                        offset_y: Some(0.0),
+                    },
+                },
+                ConfigurationMonitor {
+                    device_id: "monitor-right".to_string(),
+                    short_name: "right".to_string(),
+                    order: 1,
+                    mapping: MonitorMapping {
+                        rotation: 0,
+                        mirror: "none".to_string(),
+                        fit: Some("contain".to_string()),
+                        scale: Some(1.0),
+                        offset_x: Some(0.0),
+                        offset_y: Some(0.0),
+                    },
+                },
+            ],
+            &[],
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].file_name, "scene-01.jpg");
+        assert_eq!(result[0].status, PlaylistEntryStatus::Ready);
+        assert_eq!(result[1].file_name, "scene-02.jpg");
+        assert_eq!(result[1].status, PlaylistEntryStatus::PartialMissing);
+        assert_eq!(
+            result[1]
+                .per_monitor
+                .get("monitor-right")
+                .expect("right monitor entry should exist")
+                .exists,
+            false
+        );
+        assert!(
+            result[1]
+                .message
+                .contains("right"),
+            "missing message should mention the shortName"
+        );
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn scan_playlist_folder_preserves_existing_visibility_in_short_name_mode() {
+        let temp_dir = unique_temp_dir("scan-shortname-visibility");
+        fs::create_dir_all(temp_dir.join("left")).expect("left dir should exist");
+        fs::create_dir_all(temp_dir.join("right")).expect("right dir should exist");
+        fs::write(temp_dir.join("left").join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("right").join("scene-01.jpg"), []).expect("scene should be created");
+
+        let previous_entries = vec![PlaylistEntry {
+            file_name: "scene-01.jpg".to_string(),
+            visibility: false,
+            status: PlaylistEntryStatus::Ready,
+            message: "Ready".to_string(),
+            per_monitor: BTreeMap::new(),
+        }];
+
+        let result = build_playlist_entries(
+            &normalize_path(&temp_dir),
+            "same-name-separated-by-shortname",
+            &[
+                ConfigurationMonitor {
+                    device_id: "monitor-left".to_string(),
+                    short_name: "left".to_string(),
+                    order: 0,
+                    mapping: sample_mapping(),
+                },
+                ConfigurationMonitor {
+                    device_id: "monitor-right".to_string(),
+                    short_name: "right".to_string(),
+                    order: 1,
+                    mapping: sample_mapping(),
+                },
+            ],
+            &previous_entries,
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].visibility);
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn scan_playlist_folder_includes_root_media_as_shared_slices() {
+        let temp_dir = unique_temp_dir("scan-shared-root");
+        fs::create_dir_all(temp_dir.join("left")).expect("left dir should exist");
+        fs::create_dir_all(temp_dir.join("right")).expect("right dir should exist");
+        fs::write(temp_dir.join("left").join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("right").join("scene-01.jpg"), []).expect("scene should be created");
+        fs::write(temp_dir.join("trailer.mp4"), []).expect("shared video should be created");
+
+        let result = build_playlist_entries(
+            &normalize_path(&temp_dir),
+            "same-name-separated-by-shortname",
+            &[
+                ConfigurationMonitor {
+                    device_id: "monitor-left".to_string(),
+                    short_name: "left".to_string(),
+                    order: 0,
+                    mapping: sample_mapping(),
+                },
+                ConfigurationMonitor {
+                    device_id: "monitor-right".to_string(),
+                    short_name: "right".to_string(),
+                    order: 1,
+                    mapping: sample_mapping(),
+                },
+            ],
+            &[],
+        )
+        .expect("scan should succeed");
+
+        assert_eq!(result.len(), 2);
+        let shared_entry = result
+            .iter()
+            .find(|entry| entry.file_name == "trailer.mp4")
+            .expect("shared root media should be included");
+        assert_eq!(shared_entry.status, PlaylistEntryStatus::Ready);
+        assert_eq!(
+            shared_entry
+                .per_monitor
+                .get("monitor-left")
+                .expect("left shared entry should exist")
+                .relative_path,
+            "trailer.mp4"
+        );
+        assert_eq!(
+            shared_entry
+                .per_monitor
+                .get("monitor-right")
+                .expect("right shared entry should exist")
+                .relative_path,
+            "trailer.mp4"
+        );
+        assert_eq!(
+            shared_entry
+                .per_monitor
+                .get("monitor-left")
+                .and_then(|entry| entry.info.as_deref()),
+            Some("shared-horizontal-slice")
+        );
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
     fn playlist_path_is_always_folder_local() {
         let path = playlist_file_path("D:/Playlist");
         assert_eq!(path, PathBuf::from("D:/Playlist").join("playlist.json"));
     }
+
 }

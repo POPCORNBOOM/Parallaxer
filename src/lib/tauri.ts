@@ -2,6 +2,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
   AppSettings,
+  ConfigurationMonitor,
   ConfigurationRecord,
   MonitorRecord,
   PlaylistEntry,
@@ -31,7 +32,7 @@ export async function readConfiguration(id: string): Promise<ConfigurationRecord
   return invoke('read_configuration', { id });
 }
 
-export async function saveConfiguration(config: ConfigurationRecord): Promise<void> {
+export async function saveConfiguration(config: ConfigurationRecord): Promise<ConfigurationRecord> {
   return invoke('save_configuration', { config });
 }
 
@@ -53,12 +54,12 @@ export async function savePlaylist(playlist: PlaylistRecord): Promise<void> {
 
 export async function scanPlaylistFolder(
   sourceFolder: string,
-  shortNames: string[],
+  monitors: ConfigurationMonitor[],
   previousEntries: PlaylistEntry[]
 ): Promise<PlaylistEntry[]> {
   return invoke('scan_playlist_folder', {
     sourceFolder,
-    shortNames,
+    monitors,
     previousEntries
   });
 }

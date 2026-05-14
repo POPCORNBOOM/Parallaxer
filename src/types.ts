@@ -1,6 +1,7 @@
 export type Rotation = 0 | 90 | 180 | 270;
 export type MirrorMode = 'none' | 'horizontal' | 'vertical' | 'both';
-export type MappingMode = 'same-name-separated-by-shortname';
+export type MappingMode = 'same-folder-shared-files' | 'same-name-separated-by-shortname';
+export type MediaFit = 'contain' | 'cover' | 'fill' | 'none';
 
 export interface MonitorRecord {
   deviceId: string;
@@ -21,6 +22,7 @@ export interface MonitorRecord {
 export interface MonitorMapping {
   rotation: Rotation;
   mirror: MirrorMode;
+  fit?: MediaFit;
   scale?: number;
   offsetX?: number;
   offsetY?: number;
@@ -37,6 +39,7 @@ export interface ConfigurationRecord {
   id: string;
   name: string;
   description: string;
+  favorite?: boolean;
   monitors: ConfigurationMonitor[];
 }
 
@@ -44,6 +47,13 @@ export interface PlaylistMonitorEntry {
   exists: boolean;
   relativePath: string;
   info?: string;
+  sharedSlice?: boolean;
+}
+
+export interface PresentationSlice {
+  axis: 'horizontal';
+  index: number;
+  total: number;
 }
 
 export interface PlaylistEntry {
@@ -66,6 +76,7 @@ export interface PlaylistRecord {
 
 export interface AppSettings {
   monitorOverrides: Record<string, { friendlyName: string }>;
+  monitorHistory: MonitorRecord[];
   recentPlaylistFolders: string[];
   cache: Record<string, unknown>;
   lastSelectedPage?: string;
@@ -78,6 +89,7 @@ export interface PresentationDisplayPayload {
   deviceId: string;
   assetPath: string;
   relativePath: string;
+  slice?: PresentationSlice;
   frame?: { width: number; height: number; scaleFactor?: number };
   mapping: MonitorMapping;
   selected?: boolean;

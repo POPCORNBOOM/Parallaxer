@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ConfigurationRecord, MappingMode, PlaylistRecord } from '../../types';
+import type { ConfigurationRecord, PlaylistRecord } from '../../types';
 import { formatPlaylistEntryMessage } from '../../lib/ui';
 
 const props = defineProps<{
@@ -11,7 +11,6 @@ const emit = defineEmits<{
   'name-changed': [value: string];
   'source-folder-picked': [];
   'configuration-changed': [value: string];
-  'mapping-mode-changed': [value: MappingMode];
   'visibility-changed': [fileName: string, value: boolean];
 }>();
 </script>
@@ -47,15 +46,6 @@ const emit = defineEmits<{
         >
           {{ configuration.name || 'Untitled configuration' }}
         </option>
-      </select>
-
-      <label class="detail-label">Mapping Mode</label>
-      <select
-        class="detail-select"
-        :value="props.playlist.mappingMode"
-        @change="emit('mapping-mode-changed', ($event.target as HTMLSelectElement).value as MappingMode)"
-      >
-        <option value="same-name-separated-by-shortname">Same-name separated by shortName</option>
       </select>
     </section>
 
