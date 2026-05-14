@@ -5,7 +5,7 @@ const { t } = useI18n({ useScope: 'global' });
 
 const mitLicenseText = `MIT License
 
-Copyright (c) 2026 Parallaxer Contributors
+Copyright (c) 2026 Yigu Wang
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

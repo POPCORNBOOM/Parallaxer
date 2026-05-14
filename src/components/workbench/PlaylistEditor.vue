@@ -697,8 +697,8 @@ function getGuideMonitorStyle(item: GuideDisplayItem): Record<string, string> {
   position: absolute;
   display: block;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  background: color-mix(in srgb, var(--color-monitor-word) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-monitor-word) 22%, transparent);
 }
 
 .guide-shape-front {
@@ -713,7 +713,7 @@ function getGuideMonitorStyle(item: GuideDisplayItem): Record<string, string> {
   height: 10px;
   left: 18px;
   top: 4px;
-  opacity: 0.7;
+  opacity: 0.62;
 }
 
 .guide-shape-stack-monitor {
