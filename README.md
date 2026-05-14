@@ -22,7 +22,9 @@
   <img alt="Desktop" src="https://img.shields.io/badge/Desktop-Multi--Display-3a3f47?style=flat-square">
   <img alt="Monitor ID" src="https://img.shields.io/badge/Monitor%20ID-EDID--first-4b5563?style=flat-square">
 </p>
-
+<div align="center">
+  <img src="https://skillicons.dev/icons?i=vscode,codex" />
+</div>
 <p align="center">
   <a href="https://github.com/POPCORNBOOM/Parallaxer/stargazers">
     <img alt="GitHub stars" src="https://img.shields.io/github/stars/POPCORNBOOM/Parallaxer?style=social">
