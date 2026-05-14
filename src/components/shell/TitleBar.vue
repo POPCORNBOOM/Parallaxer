@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow } from '../../lib/window';
 
 type MenuKey = 'file' | 'edit' | 'help';
@@ -18,20 +19,26 @@ const emit = defineEmits<{
   command: [menu: MenuKey, actionKey: string];
 }>();
 
+const { t } = useI18n({ useScope: 'global' });
 const openMenu = ref<MenuKey | null>(null);
+const menuLabel = computed<Record<MenuKey, string>>(() => ({
+  file: t('titlebar.file'),
+  edit: t('titlebar.edit'),
+  help: t('titlebar.help')
+}));
 
 const menuItems = computed<Record<MenuKey, MenuAction[]>>(() => ({
   file: [
-    { key: 'new-config', label: 'New Config' },
-    { key: 'new-playlist', label: 'New Playlist' },
-    { key: 'open-playlist-folder', label: 'Open Playlist Folder' }
+    { key: 'new-config', label: t('titlebar.newConfig') },
+    { key: 'new-playlist', label: t('titlebar.newPlaylist') },
+    { key: 'open-playlist-folder', label: t('titlebar.openPlaylistFolder') }
   ],
   edit: [
-    { key: 'refresh-monitors', label: 'Refresh Monitors' },
-    { key: 'refresh-configurations', label: 'Refresh Configurations' },
-    { key: 'refresh-playlists', label: 'Refresh Playlists' }
+    { key: 'refresh-monitors', label: t('titlebar.refreshMonitors') },
+    { key: 'refresh-configurations', label: t('titlebar.refreshConfigurations') },
+    { key: 'refresh-playlists', label: t('titlebar.refreshPlaylists') }
   ],
-  help: [{ key: 'about', label: 'About Parallaxer' }]
+  help: [{ key: 'about', label: t('titlebar.about') }]
 }));
 
 function toggleMenu(menu: MenuKey): void {
@@ -53,7 +60,7 @@ function runMenuCommand(menu: MenuKey, actionKey: string): void {
 
       <div v-for="menu in ['file', 'edit', 'help'] as MenuKey[]" :key="menu" class="titlebar-menu">
         <button class="titlebar-menu-button" type="button" @click="toggleMenu(menu)">
-          {{ menu.charAt(0).toUpperCase() + menu.slice(1) }}
+          {{ menuLabel[menu] }}
         </button>
         <div v-if="openMenu === menu" class="titlebar-menu-panel floating-overlay">
           <button
@@ -70,7 +77,7 @@ function runMenuCommand(menu: MenuKey, actionKey: string): void {
     </div>
 
     <div class="titlebar-drag" data-tauri-drag-region>
-      <span class="titlebar-brand">Parallaxer</span>
+      <span class="titlebar-brand">{{ t('common.appName') }}</span>
     </div>
 
     <div class="titlebar-right">

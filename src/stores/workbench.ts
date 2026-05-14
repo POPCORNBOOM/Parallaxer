@@ -1,4 +1,5 @@
 import { computed, reactive } from 'vue';
+import { t } from '../i18n';
 import type {
   AppSettings,
   ConfigurationMonitor,
@@ -119,7 +120,7 @@ export function useWorkbench() {
     sidebarWidth: defaultSidebarWidth,
     sidebarExpandedWidth: defaultSidebarWidth,
     sidebarCollapsed: false,
-    statusMessage: 'Ready',
+    statusMessage: t('common.ready'),
     errorMessage: '',
     loading: false,
     playback: createPlaybackSession(),
@@ -156,15 +157,17 @@ export function useWorkbench() {
   const workspaceTitle = computed(() => {
     if (state.playback.active && !state.configurationPreviewActive) {
       const playlist = state.playlists.find((item) => item.id === state.playback.playlistId) ?? null;
-      return playlist?.name ? `Presentation Mode - ${playlist.name}` : 'Presentation Mode';
+      return playlist?.name
+        ? t('shell.workspace.presentationModeWithPlaylist', { name: playlist.name })
+        : t('shell.workspace.presentationMode');
     }
 
     if (state.currentPage === 'monitor') {
-      return selectedMonitor.value ? formatMonitorTitle(selectedMonitor.value) : 'Monitors';
+      return selectedMonitor.value ? formatMonitorTitle(selectedMonitor.value) : t('shell.page.monitors');
     }
 
     if (state.currentPage === 'configuration') {
-      return selectedConfiguration.value?.name || 'Configurations';
+      return selectedConfiguration.value?.name || t('shell.page.configurations');
     }
 
     if (state.currentPage === 'playlist') {
@@ -172,19 +175,19 @@ export function useWorkbench() {
         formatWorkspaceTitle({
           playlist: selectedPlaylist.value,
           configuration: selectedPlaylistConfiguration.value
-        }) || 'Playlists'
+        }) || t('shell.page.playlists')
       );
     }
 
-    return 'Settings';
+    return t('shell.page.settings');
   });
 
   const workspaceActions = computed<SidebarAction[]>(() => {
     if (state.playback.active && !state.configurationPreviewActive) {
       return [
-        { key: 'presentation-previous', hoverTip: 'Previous', icon: 'mdi-chevron-left' },
-        { key: 'presentation-stop', hoverTip: 'Stop', icon: 'mdi-stop' },
-        { key: 'presentation-next', hoverTip: 'Next', icon: 'mdi-chevron-right' }
+        { key: 'presentation-previous', hoverTip: t('shell.action.previous'), icon: 'mdi-chevron-left' },
+        { key: 'presentation-stop', hoverTip: t('shell.action.stop'), icon: 'mdi-stop' },
+        { key: 'presentation-next', hoverTip: t('shell.action.next'), icon: 'mdi-chevron-right' }
       ];
     }
 
@@ -192,7 +195,7 @@ export function useWorkbench() {
       return [
         {
           key: 'forget-monitor',
-          hoverTip: 'Forget monitor',
+          hoverTip: t('shell.action.forgetMonitor'),
           icon: 'mdi-close',
           color: 'var(--color-danger-text)'
         }
@@ -203,18 +206,18 @@ export function useWorkbench() {
       return [
         {
           key: 'preview-configuration',
-          hoverTip: state.configurationPreviewActive ? 'Stop preview' : 'Preview configuration',
+          hoverTip: state.configurationPreviewActive ? t('shell.action.stopPreview') : t('shell.action.previewConfiguration'),
           icon: state.configurationPreviewActive ? 'mdi-eye-off-outline' : 'mdi-monitor-eye'
         },
-        { key: 'duplicate-configuration', hoverTip: 'Duplicate configuration', icon: 'mdi-content-copy' },
-        { key: 'save-configuration', hoverTip: 'Save configuration', icon: 'mdi-content-save-outline' }
+        { key: 'duplicate-configuration', hoverTip: t('shell.action.duplicateConfiguration'), icon: 'mdi-content-copy' },
+        { key: 'save-configuration', hoverTip: t('shell.action.saveConfiguration'), icon: 'mdi-content-save-outline' }
       ];
     }
 
     if (state.currentPage === 'playlist' && selectedPlaylist.value) {
       return [
-        { key: 'save-playlist', hoverTip: 'Save playlist', icon: 'mdi-content-save-outline' },
-        { key: 'play-playlist', hoverTip: 'Play playlist', icon: 'mdi-play-outline' }
+        { key: 'save-playlist', hoverTip: t('shell.action.savePlaylist'), icon: 'mdi-content-save-outline' },
+        { key: 'play-playlist', hoverTip: t('shell.action.playPlaylist'), icon: 'mdi-play-outline' }
       ];
     }
 
@@ -456,7 +459,7 @@ export function useWorkbench() {
       state.currentPage = (state.settings.lastSelectedPage as WorkbenchPage | undefined) ?? 'settings';
       restoreSavedSelection();
       ensureSelection();
-      setStatus('Workbench ready');
+      setStatus(t('workbench.status.ready'));
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -523,7 +526,7 @@ export function useWorkbench() {
     monitor.friendlyName = value;
     state.settings.monitorOverrides[monitor.deviceId] = { friendlyName: value };
     queueSettingsSave();
-    setStatus('Monitor label saved');
+    setStatus(t('workbench.status.monitorLabelSaved'));
   }
 
   function forgetMonitor(deviceId: string): void {
@@ -544,7 +547,7 @@ export function useWorkbench() {
 
     queueSettingsSave();
     ensureSelection();
-    setStatus('Monitor forgotten');
+    setStatus(t('workbench.status.monitorForgotten'));
   }
 
   function updateSelectedConfigurationName(value: string): void {
@@ -572,7 +575,7 @@ export function useWorkbench() {
 
   function createConfiguration(): void {
     const configuration = createConfigurationDraft();
-    configuration.name = `Configuration ${state.configurations.length + 1}`;
+    configuration.name = `${t('domain.defaultConfigurationName')} ${state.configurations.length + 1}`;
     state.configurations.unshift(configuration);
     selectConfiguration(configuration.id);
     queueConfigurationSave(configuration.id);
@@ -591,7 +594,7 @@ export function useWorkbench() {
     pendingConfigurationSaveId = null;
     await persistConfigurationDraftById(configuration.id);
     await syncActivePresentationIfNeeded();
-    setStatus('Configuration saved');
+    setStatus(t('workbench.status.configurationSaved'));
   }
 
   async function toggleConfigurationFavorite(id: string): Promise<void> {
@@ -603,7 +606,7 @@ export function useWorkbench() {
     configuration.favorite = !configuration.favorite;
     state.configurations = sortByName(state.configurations);
     queueConfigurationSave(configuration.id);
-    setStatus(configuration.favorite ? 'Configuration favorited' : 'Configuration unfavorited');
+    setStatus(configuration.favorite ? t('workbench.status.configurationFavorited') : t('workbench.status.configurationUnfavorited'));
   }
 
   async function deleteConfigurationById(id: string): Promise<void> {
@@ -611,7 +614,7 @@ export function useWorkbench() {
     state.configurations = state.configurations.filter((item) => item.id !== id);
     state.selectedConfigurationId = state.configurations[0]?.id ?? null;
     state.selectedConfigurationMonitorKey = state.configurations[0]?.monitors[0]?.deviceId ?? null;
-    setStatus('Configuration deleted');
+    setStatus(t('workbench.status.configurationDeleted'));
   }
 
   function duplicateSelectedConfiguration(): void {
@@ -624,7 +627,7 @@ export function useWorkbench() {
     state.configurations = sortByName([duplicated, ...state.configurations]);
     selectConfiguration(duplicated.id);
     queueConfigurationSave(duplicated.id);
-    setStatus('Configuration duplicated');
+    setStatus(t('workbench.status.configurationDuplicated'));
   }
 
   function addMonitorToSelectedConfiguration(deviceId: string): void {
@@ -698,7 +701,7 @@ export function useWorkbench() {
 
   function createPlaylist(): PlaylistRecord {
     const playlist = createPlaylistDraft();
-    playlist.name = `Playlist ${state.playlists.length + 1}`;
+    playlist.name = `${t('shell.page.playlists')} ${state.playlists.length + 1}`;
     state.playlists.unshift(playlist);
     selectPlaylist(playlist.id);
     return playlist;
@@ -754,7 +757,7 @@ export function useWorkbench() {
 
     entry.visibility = visibility;
     queuePlaylistSave(playlist.id);
-    setStatus('Playlist item visibility updated');
+    setStatus(t('workbench.status.playlistItemVisibilityUpdated'));
   }
 
   function getConfigurationById(id: string | null | undefined): ConfigurationRecord | null {
@@ -815,7 +818,7 @@ export function useWorkbench() {
     const existingPlaylist = findPlaylistBySourceFolder(state.playlists, normalizedFolder);
     if (existingPlaylist) {
       selectPlaylist(existingPlaylist.id);
-      setStatus('Playlist folder opened');
+      setStatus(t('workbench.status.playlistFolderOpened'));
       return;
     }
 
@@ -857,13 +860,13 @@ export function useWorkbench() {
     if (monitors.length === 0) {
       playlist.entries = [];
       queuePlaylistSave(playlist.id);
-      setStatus('Select a configuration with at least one monitor to generate entries');
+      setStatus(t('workbench.status.selectConfigurationToGenerateEntries'));
       return;
     }
 
     playlist.entries = await scanPlaylistFolder(playlist.sourceFolder, monitors, playlist.entries);
     queuePlaylistSave(playlist.id);
-    setStatus('Playlist regenerated');
+    setStatus(t('workbench.status.playlistRegenerated'));
   }
 
   async function regenerateSelectedPlaylist(): Promise<void> {
@@ -897,7 +900,7 @@ export function useWorkbench() {
     queueSettingsSave();
     await loadPlaylistCandidates();
     selectPlaylist(createPlaylistKey(playlist.sourceFolder));
-    setStatus('Playlist saved');
+    setStatus(t('workbench.status.playlistSaved'));
   }
 
   async function togglePlaylistFavorite(id: string): Promise<void> {
@@ -915,7 +918,7 @@ export function useWorkbench() {
     (playlist as PlaylistRecord & { favorite?: boolean }).favorite = cache[folder]?.favorite === true;
     state.playlists = sortByName(state.playlists);
     queueSettingsSave();
-    setStatus(cache[folder]?.favorite ? 'Playlist favorited' : 'Playlist unfavorited');
+    setStatus(cache[folder]?.favorite ? t('workbench.status.playlistFavorited') : t('workbench.status.playlistUnfavorited'));
   }
 
   async function removePlaylistFromSidebar(id: string): Promise<void> {
@@ -937,14 +940,14 @@ export function useWorkbench() {
     if (state.selectedPlaylistId === id) {
       state.selectedPlaylistId = state.playlists[0]?.id ?? null;
     }
-    setStatus('Playlist removed from sidebar');
+    setStatus(t('workbench.status.playlistRemovedFromSidebar'));
   }
 
   async function playSelectedPlaylist(): Promise<void> {
     await flushPendingPersistence();
     const context = buildPlaybackContextFromSelection();
     if (!context) {
-      setError('Select a playlist and configuration first');
+      setError(t('workbench.error.selectPlaylistAndConfigurationFirst'));
       return;
     }
 
@@ -959,13 +962,13 @@ export function useWorkbench() {
     state.selectedConfigurationMonitorKey =
       context.configuration.monitors[0]?.deviceId ?? state.selectedConfigurationMonitorKey;
     const payload = await startPlayback(state.playback, context, 0);
-    setStatus(`Presentation started: ${payload.fileName}`);
+    setStatus(t('workbench.status.presentationStarted', { fileName: payload.fileName }));
   }
 
   async function previewSelectedConfiguration(): Promise<void> {
     const configuration = selectedConfiguration.value;
     if (!configuration) {
-      setError('Select a configuration first');
+      setError(t('workbench.error.selectConfigurationFirst'));
       return;
     }
 
@@ -978,7 +981,7 @@ export function useWorkbench() {
     const connectedMonitorIds = new Set(state.monitors.filter((item) => item.connected).map((item) => item.deviceId));
     for (const monitor of configuration.monitors) {
       if (!connectedMonitorIds.has(monitor.deviceId)) {
-        setError(`Configuration monitor ${monitor.shortName} is not connected`);
+        setError(t('domain.validation.configurationMonitorNotConnected', { shortName: monitor.shortName }));
         return;
       }
     }
@@ -1006,7 +1009,7 @@ export function useWorkbench() {
     state.playback.payload = payload;
     state.configurationPreviewActive = true;
     state.configurationPreviewId = configuration.id;
-    setStatus('Configuration preview started');
+    setStatus(t('workbench.status.configurationPreviewStarted'));
   }
 
   async function stepActivePlayback(delta: number): Promise<void> {
@@ -1026,7 +1029,7 @@ export function useWorkbench() {
 
     const payload = await stepPlayback(state.playback, context, delta);
     if (payload) {
-      setStatus(`Showing ${payload.fileName}`);
+      setStatus(t('workbench.status.showing', { fileName: payload.fileName }));
     }
   }
 
@@ -1038,7 +1041,7 @@ export function useWorkbench() {
     await stopPlayback(state.playback);
     state.configurationPreviewActive = false;
     state.configurationPreviewId = null;
-    setStatus('Presentation stopped');
+    setStatus(t('workbench.status.presentationStopped'));
   }
 
   async function stopConfigurationPreviewIfNeeded(): Promise<void> {
@@ -1124,7 +1127,7 @@ export function useWorkbench() {
       state.playback.payload = null;
       state.configurationPreviewActive = false;
       state.configurationPreviewId = null;
-      setStatus('Presentation stopped');
+      setStatus(t('workbench.status.presentationStopped'));
       return;
     }
 
@@ -1144,13 +1147,13 @@ export function useWorkbench() {
     if (payload.playlistId) {
       state.selectedPlaylistId = payload.playlistId;
     }
-    setStatus(`Presentation live: ${payload.fileName}`);
+    setStatus(t('workbench.status.presentationLive', { fileName: payload.fileName }));
   }
 
   async function refreshPlaylists(): Promise<void> {
     await loadPlaylistCandidates();
     ensureSelection();
-    setStatus('Playlists reloaded');
+    setStatus(t('workbench.status.playlistsReloaded'));
   }
 
   function toggleSidebar(): void {
@@ -1236,7 +1239,7 @@ export function useWorkbench() {
     if (listKey === 'configurations' && actionKey === 'refresh') {
       await refreshConfigurations();
       ensureSelection();
-      setStatus('Configurations refreshed');
+      setStatus(t('workbench.status.configurationsRefreshed'));
       return;
     }
 
@@ -1253,7 +1256,7 @@ export function useWorkbench() {
       const duplicated = duplicateConfigurationRecord(configuration);
       state.configurations = sortByName([duplicated, ...state.configurations]);
       selectConfiguration(duplicated.id);
-      setStatus('Configuration duplicated');
+      setStatus(t('workbench.status.configurationDuplicated'));
       return;
     }
 
@@ -1289,7 +1292,7 @@ export function useWorkbench() {
 
     if (listKey === 'monitors' && actionKey === 'refresh') {
       await refreshMonitors();
-      setStatus('Monitors refreshed');
+      setStatus(t('workbench.status.monitorsRefreshed'));
       return;
     }
 
@@ -1322,13 +1325,13 @@ export function useWorkbench() {
         return;
       case 'refresh-configurations':
         await refreshConfigurations();
-        setStatus('Configurations refreshed');
+        setStatus(t('workbench.status.configurationsRefreshed'));
         return;
       case 'refresh-playlists':
         await refreshPlaylists();
         return;
       case 'about':
-        setStatus('Parallaxer multi-monitor shell in progress');
+        setStatus(t('workbench.status.about'));
         return;
       default:
         return;

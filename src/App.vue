@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import TitleBar from './components/shell/TitleBar.vue';
@@ -54,6 +55,7 @@ const presentationViewport = ref({
   height: window.innerHeight
 });
 const presentationDrawerOpen = ref(false);
+const { t } = useI18n({ useScope: 'global' });
 
 const workbench = useWorkbench();
 
@@ -539,7 +541,7 @@ onBeforeUnmount(() => {
           <div class="presentation-preview-surface" :class="{ selected: presentationDisplay?.selected }"
             :style="{ transform: presentationTransform }">
             <div class="presentation-preview-grid" />
-            <span class="presentation-preview-word">Graph</span>
+            <span class="presentation-preview-word">{{ t('common.graph') }}</span>
           </div>
         </div>
       </div>
@@ -590,22 +592,22 @@ onBeforeUnmount(() => {
           <div class="presentation-console-body">
             <div v-if="activePresentation" class="presentation-console-header"
               :class="{ hidden: presentationDrawerOpen }">
-              <p class="presentation-console-label">展示模式</p>
-              <h2 class="presentation-console-title">{{ activePresentation.fileName || 'Presentation live' }}</h2>
+              <p class="presentation-console-label">{{ t('presentation.modeLabel') }}</p>
+              <h2 class="presentation-console-title">{{ activePresentation.fileName || t('presentation.liveTitle') }}</h2>
               <p class="presentation-console-meta">{{ `${(activePresentation.index ?? 0) + 1} / ${activePresentation.total ?? 0}` }}</p>
             </div>
 
             <div class="presentation-console-actions">
               <button class="presentation-console-button" type="button" @click="workbench.stepActivePlayback(-1)">
                 <i class="mdi mdi-chevron-left" />
-                <span>上一张</span>
+                <span>{{ t('presentation.previousSlide') }}</span>
               </button>
               <button class="presentation-console-button danger" type="button" @click="workbench.stopActivePlayback()">
                 <i class="mdi mdi-stop" />
-                <span>停止</span>
+                <span>{{ t('presentation.stop') }}</span>
               </button>
               <button class="presentation-console-button" type="button" @click="workbench.stepActivePlayback(1)">
-                <span>下一张</span>
+                <span>{{ t('presentation.nextSlide') }}</span>
                 <i class="mdi mdi-chevron-right" />
               </button>
             </div>
@@ -616,14 +618,14 @@ onBeforeUnmount(() => {
             <button class="presentation-console-drawer-toggle" type="button"
               @click="presentationDrawerOpen = !presentationDrawerOpen">
               <i class="mdi" :class="presentationDrawerOpen ? 'mdi-chevron-down' : 'mdi-chevron-up'" />
-              <span>{{ presentationDrawerOpen ? '收起' : '配置' }}</span>
+              <span>{{ presentationDrawerOpen ? t('presentation.collapse') : t('presentation.configuration') }}</span>
             </button>
 
             <section class="presentation-console-panel">
               <div class="presentation-console-panel-body">
                 <div class="presentation-console-drawer-header">
-                  <p class="presentation-console-drawer-label">当前配置</p>
-                  <h3 class="presentation-console-drawer-title">{{ activePlaybackConfiguration.name || 'Untitled configuration' }}</h3>
+                  <p class="presentation-console-drawer-label">{{ t('presentation.currentConfiguration') }}</p>
+                  <h3 class="presentation-console-drawer-title">{{ activePlaybackConfiguration.name || t('common.untitledConfiguration') }}</h3>
                 </div>
 
                 <ConfigurationEditor

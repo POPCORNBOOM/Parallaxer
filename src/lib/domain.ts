@@ -9,6 +9,7 @@ import type {
   PresentationDisplayPayload,
   PresentationPayload
 } from '../types';
+import { t } from '../i18n';
 
 export const CONFIGURATION_PREVIEW_RELATIVE_PATH = '__configuration_preview__';
 export const PLAYLIST_SIDEBAR_CACHE_KEY = 'playlistSidebar';
@@ -184,7 +185,7 @@ export function duplicateConfigurationRecord(
   return {
     ...configuration,
     id: createId('configuration'),
-    name: `${configuration.name || 'Configuration'}${suffix}`,
+    name: `${configuration.name || t('domain.defaultConfigurationName')}${suffix}`,
     monitors: configuration.monitors.map((monitor) => ({
       ...monitor,
       mapping: {
@@ -211,7 +212,7 @@ export function createCachedPlaylistRecord(sourceFolder: string): PlaylistRecord
   const leaf = getPathLeaf(normalizedFolder);
   return {
     id: createPlaylistKey(normalizedFolder) || `playlist-cache-${createStableFolderHash(normalizedFolder.toLowerCase())}`,
-    name: leaf || 'Untitled playlist',
+    name: leaf || t('domain.defaultPlaylistName'),
     sourceFolder: normalizedFolder,
     configurationId: '',
     mappingMode: 'same-name-separated-by-shortname',
@@ -261,32 +262,32 @@ export function validateConfiguration(config: ConfigurationRecord): string[] {
   const deviceIds = new Set<string>();
 
   if (!config.name.trim()) {
-    errors.push('Configuration name is required');
+    errors.push(t('domain.validation.configurationNameRequired'));
   }
 
   if (config.monitors.length === 0) {
-    errors.push('At least one monitor is required');
+    errors.push(t('domain.validation.configurationAtLeastOneMonitor'));
   }
 
   for (const monitor of config.monitors) {
     if (!monitor.deviceId.trim()) {
-      errors.push('deviceId is required');
+      errors.push(t('domain.validation.deviceIdRequired'));
     }
 
     if (monitor.deviceId.trim()) {
       if (deviceIds.has(monitor.deviceId)) {
-        errors.push('deviceId must be unique');
+        errors.push(t('domain.validation.deviceIdUnique'));
       } else {
         deviceIds.add(monitor.deviceId);
       }
     }
 
     if (!monitor.shortName.trim()) {
-      errors.push('shortName is required');
+      errors.push(t('domain.validation.shortNameRequired'));
     }
 
     if (orders.has(monitor.order)) {
-      errors.push('order must be unique');
+      errors.push(t('domain.validation.orderUnique'));
     } else {
       orders.add(monitor.order);
     }
@@ -303,33 +304,33 @@ export function validatePlaylist(
   const errors: string[] = [];
 
   if (!playlist.name.trim()) {
-    errors.push('Playlist name is required');
+    errors.push(t('domain.validation.playlistNameRequired'));
   }
 
   if (!playlist.sourceFolder.trim()) {
-    errors.push('Playlist sourceFolder is required');
+    errors.push(t('domain.validation.playlistSourceFolderRequired'));
   }
 
   if (!playlist.configurationId.trim()) {
-    errors.push('Playlist configurationId is required');
+    errors.push(t('domain.validation.playlistConfigurationIdRequired'));
   }
 
   if (!configuration) {
-    errors.push('Playlist configuration was not found');
+    errors.push(t('domain.validation.playlistConfigurationNotFound'));
     return errors;
   }
 
   if (playlist.configurationId !== configuration.id) {
-    errors.push('Playlist configurationId does not match the selected configuration');
+    errors.push(t('domain.validation.playlistConfigurationMismatch'));
   }
 
   if (configuration.monitors.length === 0) {
-    errors.push('Playlist configuration must include at least one monitor');
+    errors.push(t('domain.validation.playlistConfigurationNeedsMonitors'));
   }
 
   for (const monitor of configuration.monitors) {
     if (!connectedMonitorIds.has(monitor.deviceId)) {
-      errors.push(`Configuration monitor ${monitor.shortName} is not connected`);
+      errors.push(t('domain.validation.configurationMonitorNotConnected', { shortName: monitor.shortName }));
     }
   }
 
@@ -337,18 +338,18 @@ export function validatePlaylist(
     for (const monitor of configuration.monitors) {
       const perMonitor = entry.perMonitor[monitor.deviceId];
       if (!perMonitor) {
-        errors.push(`Entry ${entry.fileName} is missing monitor ${monitor.shortName}`);
+        errors.push(t('domain.validation.entryMissingMonitor', { fileName: entry.fileName, shortName: monitor.shortName }));
         continue;
       }
 
       if (entry.status === 'ready' && (!perMonitor.exists || !perMonitor.relativePath.trim())) {
-        errors.push(`Entry ${entry.fileName} is not ready for monitor ${monitor.shortName}`);
+        errors.push(t('domain.validation.entryNotReadyForMonitor', { fileName: entry.fileName, shortName: monitor.shortName }));
       }
     }
   }
 
   if (!playlist.entries.some((entry) => isPlayableEntry(entry))) {
-    errors.push('Playlist must include at least one visible ready entry');
+    errors.push(t('domain.validation.playlistNeedsPlayableEntry'));
   }
 
   return errors;
@@ -535,7 +536,7 @@ export function buildConfigurationPreviewPayload(
     configurationId: configuration.id,
     index: 0,
     total: 1,
-    fileName: 'Configuration Preview',
+    fileName: t('domain.configurationPreviewFileName'),
     displays
   };
 }

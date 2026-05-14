@@ -5,6 +5,7 @@ import type {
   PlaylistEntry,
   PlaylistRecord
 } from '../types';
+import { getLocale, t } from '../i18n';
 
 export function formatPathLeaf(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/g, '');
@@ -36,11 +37,11 @@ export function formatPlaylistEntryMessage(entry: PlaylistEntry): string {
 
   switch (entry.status) {
     case 'ready':
-      return 'Ready';
+      return t('ui.playlistEntry.ready');
     case 'partial-missing':
-      return 'Missing assets on some monitors';
+      return t('ui.playlistEntry.partialMissing');
     default:
-      return 'Missing assets on all monitors';
+      return t('ui.playlistEntry.missingAll');
   }
 }
 
@@ -49,7 +50,7 @@ export function formatWorkspaceTitle(args: {
   configuration: ConfigurationRecord | null;
 }): string {
   const parts = [args.playlist?.name, args.configuration?.name].filter(Boolean);
-  return parts.length > 0 ? parts.join(' / ') : 'Parallaxer';
+  return parts.length > 0 ? parts.join(' / ') : t('shell.workspace.fallbackTitle');
 }
 
 export function formatCompactDisplayInfo(monitor: MonitorRecord): string {
@@ -57,13 +58,15 @@ export function formatCompactDisplayInfo(monitor: MonitorRecord): string {
 }
 
 export function formatConnectedState(monitor: MonitorRecord): string {
-  return monitor.connected ? 'Connected now' : `Seen before · ${formatLastSeenAt(monitor.lastSeenAt)}`;
+  return monitor.connected
+    ? t('monitor.connectedNow')
+    : t('monitor.seenBefore', { time: formatLastSeenAt(monitor.lastSeenAt) });
 }
 
 export function formatLastSeenAt(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
-    return 'Unknown';
+    return t('common.unknown');
   }
 
   const numericValue = Number(trimmed);
@@ -74,7 +77,7 @@ export function formatLastSeenAt(value: string): string {
     return trimmed;
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getLocale(), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -86,11 +89,11 @@ export function formatLastSeenAt(value: string): string {
 }
 
 export function formatAppRootPath(): string {
-  return '~/.parallaxer';
+  return t('ui.appRootPath');
 }
 
 export function formatSettingsStorageHint(): string {
-  return 'Settings and monitor labels are stored in ~/.parallaxer, while each playlist persists beside its source folder as playlist.json.';
+  return t('settings.storageHint');
 }
 
 export function buildMonitorTransform(

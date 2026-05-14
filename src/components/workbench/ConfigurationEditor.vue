@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type {
   ConfigurationMonitor,
   ConfigurationRecord,
@@ -39,8 +40,9 @@ const emit = defineEmits<{
 }>();
 
 const rotations: Rotation[] = [0, 90, 180, 270];
-const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical'];
+const mirrors: MirrorMode[] = ['none', 'horizontal', 'vertical', 'both'];
 const fits: MediaFit[] = ['contain', 'cover', 'fill', 'none'];
+const { t } = useI18n({ useScope: 'global' });
 const stripReferenceHeight = 216;
 const stripMinimumMappedHeight = 86;
 const stripHeightDecayGamma = 2.6;
@@ -439,6 +441,13 @@ function parseNumberInput(event: Event, fallback: number): number {
   return Number.isFinite(next) ? next : fallback;
 }
 
+function fitLabel(fit: MediaFit): string {
+  if (fit === 'none') {
+    return t('configuration.option.none');
+  }
+  return t(`configuration.option.${fit}`);
+}
+
 onMounted(() => {
   window.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onMonitorPointerMove);
@@ -459,20 +468,20 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="props.configuration" class="detail-stack configuration-editor">
     <section class="detail-stack config-surface">
-      <label class="detail-label config-label">Configuration name</label>
-      <input class="detail-input" :value="props.configuration.name" placeholder="Configuration name"
+      <label class="detail-label config-label">{{ t('configuration.name') }}</label>
+      <input class="detail-input" :value="props.configuration.name" :placeholder="t('configuration.namePlaceholder')"
         @input="emit('name-changed', ($event.target as HTMLInputElement).value)" />
-      <label class="detail-label config-label">Description</label>
+      <label class="detail-label config-label">{{ t('configuration.description') }}</label>
       <textarea class="detail-textarea" :value="props.configuration.description"
-        placeholder="Describe this monitor mapping"
+        :placeholder="t('configuration.descriptionPlaceholder')"
         @input="emit('description-changed', ($event.target as HTMLTextAreaElement).value)" />
     </section>
 
     <section class="config-surface monitor-strip-panel">
       <div class="monitor-strip-header">
         <div>
-          <p class="monitor-strip-title">Monitor layout</p>
-          <p class="monitor-strip-copy">Physical scale stays relative to the widest display in this configuration.</p>
+          <p class="monitor-strip-title">{{ t('configuration.layoutTitle') }}</p>
+          <p class="monitor-strip-copy">{{ t('configuration.layoutCopy') }}</p>
         </div>
       </div>
 
@@ -484,7 +493,7 @@ onBeforeUnmount(() => {
               type="button" @click="toggleAddPicker">
               <span class="add-card-plus">+</span>
               <span class="add-card-label">
-                {{ addableMonitors.length === 0 ? 'All monitors added' : 'Add monitor' }}
+                {{ addableMonitors.length === 0 ? t('common.allMonitorsAdded') : t('common.addMonitor') }}
               </span>
             </button>
           </div>
@@ -530,7 +539,7 @@ onBeforeUnmount(() => {
                           monitor.size.height
                         )
                       }">
-                        <span class="monitor-preview-word">Graph</span>
+                        <span class="monitor-preview-word">{{ t('common.graph') }}</span>
                       </div>
                     </div>
                   </div>
@@ -541,7 +550,7 @@ onBeforeUnmount(() => {
               <span class="monitor-size">{{ monitor.size.width }}×{{ monitor.size.height }}</span>
               <button class="monitor-remove" type="button" @pointerdown.stop
                 @click.stop="emit('remove-monitor', monitor.deviceId)">
-                Remove
+                {{ t('configuration.remove') }}
               </button>
             </div>
           </div>
@@ -561,12 +570,12 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-if="getSelectedMonitor()" class="detail-stack config-surface">
-      <label class="detail-label config-label">Short name</label>
-      <input class="detail-input" :value="getSelectedMonitor()!.shortName" placeholder="display-a"
+      <label class="detail-label config-label">{{ t('configuration.shortName') }}</label>
+      <input class="detail-input" :value="getSelectedMonitor()!.shortName" :placeholder="t('configuration.shortNamePlaceholder')"
         @input="emit('short-name-changed', getSelectedMonitor()!.deviceId, ($event.target as HTMLInputElement).value)" />
 
       <div class="mapping-field">
-        <label class="detail-label config-label">Rotation</label>
+        <label class="detail-label config-label">{{ t('configuration.rotation') }}</label>
         <div class="choice-row">
           <button v-for="rotation in rotations" :key="rotation" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.rotation === rotation }" type="button"
@@ -577,30 +586,30 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="mapping-field">
-        <label class="detail-label config-label">Mirror</label>
+        <label class="detail-label config-label">{{ t('configuration.mirror') }}</label>
         <div class="choice-row">
           <button v-for="mirror in mirrors" :key="mirror" class="choice-button"
             :class="{ selected: getSelectedMonitor()!.mapping.mirror === mirror }" type="button"
             @click="emit('mirror-changed', getSelectedMonitor()!.deviceId, mirror)">
-            {{ mirror }}
+            {{ t(`configuration.option.${mirror}`) }}
           </button>
         </div>
       </div>
 
       <div class="mapping-field">
-        <label class="detail-label config-label">Fit</label>
+        <label class="detail-label config-label">{{ t('configuration.fit') }}</label>
         <div class="choice-row">
           <button v-for="fit in fits" :key="fit" class="choice-button"
             :class="{ selected: (getSelectedMonitor()!.mapping.fit ?? 'contain') === fit }" type="button"
             @click="emit('fit-changed', getSelectedMonitor()!.deviceId, fit)">
-            {{ fit }}
+            {{ fitLabel(fit) }}
           </button>
         </div>
       </div>
 
       <div class="mapping-grid">
         <div class="mapping-field">
-          <label class="detail-label config-label">Scale</label>
+          <label class="detail-label config-label">{{ t('configuration.scale') }}</label>
           <input class="detail-input" type="number" min="0.1" max="8" step="0.05"
             :value="getSelectedMonitor()!.mapping.scale ?? 1" @input="
               emit(
@@ -612,7 +621,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="mapping-field">
-          <label class="detail-label config-label">Offset X (px)</label>
+          <label class="detail-label config-label">{{ t('configuration.offsetX') }}</label>
           <input class="detail-input" type="number" step="1" :value="getSelectedMonitor()!.mapping.offsetX ?? 0" @input="
             emit(
               'offset-x-changed',
@@ -623,7 +632,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="mapping-field">
-          <label class="detail-label config-label">Offset Y (px)</label>
+          <label class="detail-label config-label">{{ t('configuration.offsetY') }}</label>
           <input class="detail-input" type="number" step="1" :value="getSelectedMonitor()!.mapping.offsetY ?? 0" @input="
             emit(
               'offset-y-changed',
@@ -635,7 +644,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
   </div>
-  <div v-else class="empty-state">Select or create a configuration.</div>
+  <div v-else class="empty-state">{{ t('configuration.empty') }}</div>
 </template>
 
 <style scoped>

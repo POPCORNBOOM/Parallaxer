@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import AppSelect from '../shell/AppSelect.vue';
 import type { ConfigurationRecord, PlaylistRecord } from '../../types';
 import { formatPlaylistEntryMessage } from '../../lib/ui';
 
@@ -13,49 +16,51 @@ const emit = defineEmits<{
   'configuration-changed': [value: string];
   'visibility-changed': [fileName: string, value: boolean];
 }>();
+
+const { t } = useI18n({ useScope: 'global' });
+
+const configurationOptions = computed(() => [
+  { value: '', label: t('playlist.selectConfiguration') },
+  ...props.configurations.map((configuration) => ({
+    value: configuration.id,
+    label: configuration.name || t('common.untitledConfiguration')
+  }))
+]);
 </script>
 
 <template>
   <div v-if="props.playlist" class="detail-stack playlist-editor">
     <section class="detail-stack detail-section">
-      <label class="detail-label">Playlist Name</label>
+      <label class="detail-label">{{ t('playlist.name') }}</label>
       <input
         class="detail-input"
         :value="props.playlist.name"
-        placeholder="Playlist name"
+        :placeholder="t('playlist.namePlaceholder')"
         @input="emit('name-changed', ($event.target as HTMLInputElement).value)"
       />
 
-      <label class="detail-label">Source Folder</label>
+      <label class="detail-label">{{ t('playlist.sourceFolder') }}</label>
       <div class="inline-field">
         <input class="detail-input" :value="props.playlist.sourceFolder" readonly />
-        <button class="chip-button" type="button" @click="emit('source-folder-picked')">Browse</button>
+        <button class="chip-button" type="button" @click="emit('source-folder-picked')">{{ t('common.browse') }}</button>
       </div>
 
-      <label class="detail-label">Configuration</label>
-      <select
-        class="detail-select"
-        :value="props.playlist.configurationId"
-        @change="emit('configuration-changed', ($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">Select configuration</option>
-        <option
-          v-for="configuration in props.configurations"
-          :key="configuration.id"
-          :value="configuration.id"
-        >
-          {{ configuration.name || 'Untitled configuration' }}
-        </option>
-      </select>
+      <label class="detail-label">{{ t('playlist.configuration') }}</label>
+      <AppSelect
+        :model-value="props.playlist.configurationId"
+        :options="configurationOptions"
+        :placeholder="t('playlist.selectConfiguration')"
+        @update:model-value="emit('configuration-changed', $event)"
+      />
     </section>
 
     <section class="detail-section">
       <table class="playlist-table">
         <thead>
           <tr>
-            <th>File</th>
-            <th>Info</th>
-            <th>Visible</th>
+            <th>{{ t('common.file') }}</th>
+            <th>{{ t('common.info') }}</th>
+            <th>{{ t('common.visible') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -74,7 +79,7 @@ const emit = defineEmits<{
       </table>
     </section>
   </div>
-  <div v-else class="empty-state">Select or create a playlist.</div>
+  <div v-else class="empty-state">{{ t('playlist.empty') }}</div>
 </template>
 
 <style scoped>
@@ -93,7 +98,6 @@ const emit = defineEmits<{
 }
 
 .detail-input,
-.detail-select,
 .playlist-table {
   font-size: 13px;
 }

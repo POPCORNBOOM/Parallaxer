@@ -1,4 +1,5 @@
 import type { ConfigurationRecord, MonitorRecord, PlaylistRecord } from '../types';
+import { t } from '../i18n';
 import { formatMonitorTitle } from './ui';
 
 export const SIDEBAR_MIN_WIDTH = 196;
@@ -92,48 +93,48 @@ export function buildSidebarModel(args: {
     headButtons: [
       {
         key: 'new-config',
-        title: 'New Config',
-        hoverTip: 'Create a configuration',
+        title: t('titlebar.newConfig'),
+        hoverTip: t('shell.action.createConfiguration'),
         icon: 'mdi-plus-box-multiple-outline'
       },
       {
         key: 'new-playlist',
-        title: 'New Playlist',
-        hoverTip: 'Create a playlist',
+        title: t('titlebar.newPlaylist'),
+        hoverTip: t('shell.action.createPlaylist'),
         icon: 'mdi-playlist-plus'
       }
     ],
     bodyLists: [
       {
         key: 'monitors',
-        title: 'Monitors',
-        placeholder: 'No monitors found',
-        actions: [{ key: 'refresh', hoverTip: 'Refresh monitors', icon: 'mdi-refresh' }]
+        title: t('shell.page.monitors'),
+        placeholder: t('shell.sidebar.noMonitorsFound'),
+        actions: [{ key: 'refresh', hoverTip: t('shell.action.refreshMonitors'), icon: 'mdi-refresh' }]
       },
       {
         key: 'configurations',
-        title: 'Configurations',
-        placeholder: 'No configurations yet',
+        title: t('shell.page.configurations'),
+        placeholder: t('shell.sidebar.noConfigurationsYet'),
         actions: [
-          { key: 'refresh', hoverTip: 'Reload configurations', icon: 'mdi-refresh' },
-          { key: 'new', hoverTip: 'Create configuration', icon: 'mdi-plus' }
+          { key: 'refresh', hoverTip: t('shell.action.reloadConfigurations'), icon: 'mdi-refresh' },
+          { key: 'new', hoverTip: t('shell.action.createConfigurationShort'), icon: 'mdi-plus' }
         ]
       },
       {
         key: 'playlists',
-        title: 'Playlists',
-        placeholder: 'No playlists yet',
+        title: t('shell.page.playlists'),
+        placeholder: t('shell.sidebar.noPlaylistsYet'),
         actions: [
-          { key: 'refresh', hoverTip: 'Reload playlists', icon: 'mdi-refresh' },
-          { key: 'open', hoverTip: 'Open playlist folder', icon: 'mdi-folder-open-outline' }
+          { key: 'refresh', hoverTip: t('shell.action.reloadPlaylists'), icon: 'mdi-refresh' },
+          { key: 'open', hoverTip: t('shell.action.openPlaylistFolder'), icon: 'mdi-folder-open-outline' }
         ]
       }
     ],
     tailButtons: [
       {
         key: 'settings',
-        title: 'Settings',
-        hoverTip: 'Open settings',
+        title: t('shell.page.settings'),
+        hoverTip: t('shell.action.openSettings'),
         icon: 'mdi-cog-outline'
       }
     ],
@@ -142,13 +143,13 @@ export function buildSidebarModel(args: {
         key: monitor.deviceId,
         selected: currentPage === 'monitor' && selectedMonitorId === monitor.deviceId,
         title: formatMonitorTitle(monitor),
-        tail: monitor.connected ? 'live' : 'history',
+        tail: monitor.connected ? t('shell.sidebar.live') : t('shell.sidebar.history'),
         hoverTail: monitor.connected
           ? `${monitor.size.width}x${monitor.size.height}`
           : [
               {
                 key: 'forget',
-                hoverTip: 'Forget monitor',
+                hoverTip: t('shell.action.forgetMonitor'),
                 icon: 'mdi-close',
                 color: 'var(--color-danger-text)'
               }
@@ -161,7 +162,7 @@ export function buildSidebarModel(args: {
           ? {
               key: 'favorite',
               icon: 'mdi-star',
-              hoverTip: 'Unfavorite configuration',
+              hoverTip: t('shell.action.unfavoriteConfiguration'),
               color: 'var(--color-warning-text, #f4cf64)'
             }
           : undefined,
@@ -169,26 +170,26 @@ export function buildSidebarModel(args: {
           ? {
               key: 'favorite',
               icon: 'mdi-star-outline',
-              hoverTip: 'Favorite configuration',
+              hoverTip: t('shell.action.favoriteConfiguration'),
               color: 'var(--color-text-tertiary)'
             }
           : {
               key: 'favorite',
               icon: 'mdi-star',
-              hoverTip: 'Unfavorite configuration',
+              hoverTip: t('shell.action.unfavoriteConfiguration'),
               color: 'var(--color-warning-text, #f4cf64)'
             },
-        title: configuration.name || 'Untitled configuration',
-        tail: `${configuration.monitors.length} monitors`,
+        title: configuration.name || t('common.untitledConfiguration'),
+        tail: t('shell.sidebar.monitorCount', { count: configuration.monitors.length }),
         hoverTail: [
           {
             key: 'duplicate',
-            hoverTip: 'Duplicate configuration',
+            hoverTip: t('shell.action.duplicateConfiguration'),
             icon: 'mdi-content-copy'
           },
           {
             key: 'delete',
-            hoverTip: 'Delete configuration',
+            hoverTip: t('shell.action.deleteConfiguration'),
             icon: 'mdi-delete-outline',
             color: 'var(--color-danger-text)'
           }
@@ -201,7 +202,7 @@ export function buildSidebarModel(args: {
           ? {
               key: 'favorite',
               icon: 'mdi-star',
-              hoverTip: 'Unfavorite playlist',
+              hoverTip: t('shell.action.unfavoritePlaylist'),
               color: 'var(--color-warning-text, #f4cf64)'
             }
           : undefined,
@@ -209,26 +210,26 @@ export function buildSidebarModel(args: {
           ? {
               key: 'favorite',
               icon: 'mdi-star-outline',
-              hoverTip: 'Favorite playlist',
+              hoverTip: t('shell.action.favoritePlaylist'),
               color: 'var(--color-text-tertiary)'
             }
           : {
               key: 'favorite',
               icon: 'mdi-star',
-              hoverTip: 'Unfavorite playlist',
+              hoverTip: t('shell.action.unfavoritePlaylist'),
               color: 'var(--color-warning-text, #f4cf64)'
             },
-        title: playlist.name || 'Untitled playlist',
-        tail: `${playlist.entries.length} items`,
+        title: playlist.name || t('common.untitledPlaylist'),
+        tail: t('shell.sidebar.itemCount', { count: playlist.entries.length }),
         hoverTail: [
           {
             key: 'scan',
-            hoverTip: 'Rescan folder',
+            hoverTip: t('shell.action.rescanFolder'),
             icon: 'mdi-refresh'
           },
           {
             key: 'remove',
-            hoverTip: 'Remove from sidebar',
+            hoverTip: t('shell.action.removeFromSidebar'),
             icon: 'mdi-close',
             color: 'var(--color-danger-text)'
           }
