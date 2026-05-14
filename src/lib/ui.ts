@@ -102,49 +102,30 @@ export function buildMonitorTransform(
   options?: { offsetMultiplier?: number }
 ): string {
   const offsetMultiplier = options?.offsetMultiplier ?? 1;
-  const scale = mapping.scale ?? 1;
   const offsetX = (mapping.offsetX ?? 0) * offsetMultiplier;
   const offsetY = (mapping.offsetY ?? 0) * offsetMultiplier;
-  const scaleX = (mapping.mirror === 'horizontal' ? -1 : 1) * scale;
-  const scaleY = (mapping.mirror === 'vertical' ? -1 : 1) * scale;
+  const baseScaleX = mapping.scaleX ?? 1;
+  const baseScaleY = mapping.scaleY ?? 1;
+  const scaleX = (mapping.mirror === 'horizontal' ? -1 : 1) * baseScaleX;
+  const scaleY = (mapping.mirror === 'vertical' ? -1 : 1) * baseScaleY;
 
   return `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
 }
 
-export function getMonitorMediaFit(mapping: MonitorMapping): NonNullable<MonitorMapping['fit']> {
-  return mapping.fit ?? 'contain';
-}
-
 export function buildMediaFrameDimensions(args: {
-  fit: NonNullable<MonitorMapping['fit']>;
   viewportWidth: number;
   viewportHeight: number;
   mediaWidth: number;
   mediaHeight: number;
 }): { width: number; height: number } {
-  const { fit, viewportWidth, viewportHeight, mediaWidth, mediaHeight } = args;
+  const { viewportWidth, viewportHeight, mediaWidth, mediaHeight } = args;
   const safeViewportWidth = Math.max(viewportWidth, 1);
   const safeViewportHeight = Math.max(viewportHeight, 1);
   const safeMediaWidth = Math.max(mediaWidth, 1);
   const safeMediaHeight = Math.max(mediaHeight, 1);
   const widthRatio = safeViewportWidth / safeMediaWidth;
   const heightRatio = safeViewportHeight / safeMediaHeight;
-
-  if (fit === 'fill') {
-    return {
-      width: safeViewportWidth,
-      height: safeViewportHeight
-    };
-  }
-
-  if (fit === 'none') {
-    return {
-      width: safeMediaWidth,
-      height: safeMediaHeight
-    };
-  }
-
-  const scale = fit === 'cover' ? Math.max(widthRatio, heightRatio) : Math.min(widthRatio, heightRatio);
+  const scale = Math.min(widthRatio, heightRatio);
   return {
     width: safeMediaWidth * scale,
     height: safeMediaHeight * scale
@@ -152,7 +133,6 @@ export function buildMediaFrameDimensions(args: {
 }
 
 export function buildMediaFrameStyle(args: {
-  fit: NonNullable<MonitorMapping['fit']>;
   viewportWidth: number;
   viewportHeight: number;
   mediaWidth: number;

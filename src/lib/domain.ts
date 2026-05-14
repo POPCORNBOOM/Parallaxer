@@ -2,6 +2,7 @@ import type {
   AppSettings,
   ConfigurationMonitor,
   ConfigurationRecord,
+  ThemeMode,
   MonitorRecord,
   MonitorMapping,
   PlaylistEntry,
@@ -19,6 +20,7 @@ export const DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA = 2.6;
 export const MIN_MONITOR_STRIP_HEIGHT_GAMMA = 0.4;
 export const MAX_MONITOR_STRIP_HEIGHT_GAMMA = 6;
 export const MONITOR_STRIP_HEIGHT_GAMMA_STEP = 0.05;
+export const DEFAULT_THEME_MODE: ThemeMode = 'dark';
 
 export interface PlaylistSidebarCacheEntry {
   favorite?: boolean;
@@ -32,6 +34,10 @@ export function normalizeMonitorStripHeightGamma(value: unknown): number {
   }
 
   return Math.min(MAX_MONITOR_STRIP_HEIGHT_GAMMA, Math.max(MIN_MONITOR_STRIP_HEIGHT_GAMMA, parsed));
+}
+
+export function normalizeThemeMode(value: unknown): ThemeMode {
+  return value === 'light' || value === 'system' ? value : 'dark';
 }
 
 export function mapMonitorStripHeight(normalizedHeight: number, gamma: number): number {
@@ -135,6 +141,7 @@ export function createEmptySettings(): AppSettings {
     monitorHistory: [],
     recentPlaylistFolders: [],
     cache: {},
+    themeMode: DEFAULT_THEME_MODE,
     monitorStripHeightGamma: DEFAULT_MONITOR_STRIP_HEIGHT_GAMMA
   };
 }
@@ -149,6 +156,7 @@ export function normalizeAppSettings(value: Partial<AppSettings> | null | undefi
     monitorHistory: value?.monitorHistory ?? defaults.monitorHistory,
     recentPlaylistFolders: value?.recentPlaylistFolders ?? defaults.recentPlaylistFolders,
     cache: value?.cache ?? defaults.cache,
+    themeMode: normalizeThemeMode(value?.themeMode),
     monitorStripHeightGamma: normalizeMonitorStripHeightGamma(value?.monitorStripHeightGamma)
   };
 }
@@ -206,8 +214,8 @@ export function createDefaultMonitorMapping(): MonitorMapping {
   return {
     rotation: 0,
     mirror: 'none',
-    fit: 'contain',
-    scale: 1,
+    scaleX: 1,
+    scaleY: 1,
     offsetX: 0,
     offsetY: 0
   };

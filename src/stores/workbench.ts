@@ -4,11 +4,11 @@ import type {
   AppSettings,
   ConfigurationMonitor,
   ConfigurationRecord,
-  MediaFit,
   MirrorMode,
   MonitorRecord,
   PlaylistRecord,
   PresentationPayload,
+  ThemeMode,
   Rotation
 } from '../types';
 import {
@@ -224,6 +224,10 @@ export function useWorkbench() {
       );
     }
 
+    if (state.currentPage === 'about') {
+      return t('about.title');
+    }
+
     return t('shell.page.settings');
   });
 
@@ -254,14 +258,12 @@ export function useWorkbench() {
           hoverTip: state.configurationPreviewActive ? t('shell.action.stopPreview') : t('shell.action.previewConfiguration'),
           icon: state.configurationPreviewActive ? 'mdi-eye-off-outline' : 'mdi-monitor-eye'
         },
-        { key: 'duplicate-configuration', hoverTip: t('shell.action.duplicateConfiguration'), icon: 'mdi-content-copy' },
-        { key: 'save-configuration', hoverTip: t('shell.action.saveConfiguration'), icon: 'mdi-content-save-outline' }
+        { key: 'duplicate-configuration', hoverTip: t('shell.action.duplicateConfiguration'), icon: 'mdi-content-copy' }
       ];
     }
 
     if (state.currentPage === 'playlist' && selectedPlaylist.value) {
       return [
-        { key: 'save-playlist', hoverTip: t('shell.action.savePlaylist'), icon: 'mdi-content-save-outline' },
         { key: 'play-playlist', hoverTip: t('shell.action.playPlaylist'), icon: 'mdi-play-outline' }
       ];
     }
@@ -540,6 +542,15 @@ export function useWorkbench() {
     void syncConfigurationPreviewIfNeeded();
   }
 
+  function updateThemeMode(value: ThemeMode): void {
+    if (state.settings.themeMode === value) {
+      return;
+    }
+
+    state.settings.themeMode = value;
+    queueSettingsSave();
+  }
+
   function selectPage(page: WorkbenchPage): void {
     if (page !== 'configuration') {
       void stopConfigurationPreviewIfNeeded();
@@ -748,8 +759,8 @@ export function useWorkbench() {
   }
 
   function updateConfigurationMappingValue(
-    field: 'rotation' | 'mirror' | 'fit' | 'scale' | 'offsetX' | 'offsetY',
-    value: Rotation | MirrorMode | MediaFit | number,
+    field: 'rotation' | 'mirror' | 'scaleX' | 'scaleY' | 'offsetX' | 'offsetY',
+    value: Rotation | MirrorMode | number,
     deviceId: string,
     syncAll = false
   ): void {
@@ -766,11 +777,11 @@ export function useWorkbench() {
           case 'mirror':
             monitor.mapping.mirror = value as MirrorMode;
             break;
-          case 'fit':
-            monitor.mapping.fit = value as MediaFit;
+          case 'scaleX':
+            monitor.mapping.scaleX = value as number;
             break;
-          case 'scale':
-            monitor.mapping.scale = value as number;
+          case 'scaleY':
+            monitor.mapping.scaleY = value as number;
             break;
           case 'offsetX':
             monitor.mapping.offsetX = value as number;
@@ -1368,6 +1379,7 @@ export function useWorkbench() {
       const duplicated = duplicateConfigurationRecord(configuration);
       state.configurations = sortByName([duplicated, ...state.configurations]);
       selectConfiguration(duplicated.id);
+      queueConfigurationSave(duplicated.id);
       setStatus(t('workbench.status.configurationDuplicated'));
       return;
     }
@@ -1443,7 +1455,9 @@ export function useWorkbench() {
         await refreshPlaylists();
         return;
       case 'about':
-        setStatus(t('workbench.status.about'));
+        state.currentPage = 'about';
+        state.settings.lastSelectedPage = 'about';
+        queueSettingsSave();
         return;
       default:
         return;
@@ -1525,6 +1539,7 @@ export function useWorkbench() {
     setSidebarWidth,
     openSettings,
     updateMonitorStripHeightGamma,
+    updateThemeMode,
     handleSidebarSelection,
     handleSidebarListAction,
     handleMenuCommand,

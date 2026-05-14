@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { closeWindow, minimizeWindow, toggleMaximizeWindow } from '../../lib/window';
+import appLogoUrl from '../../app-logo.png';
 
 type MenuKey = 'file' | 'edit' | 'help';
 
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n({ useScope: 'global' });
 const openMenu = ref<MenuKey | null>(null);
+const titlebarRef = ref<HTMLElement | null>(null);
 const menuLabel = computed<Record<MenuKey, string>>(() => ({
   file: t('titlebar.file'),
   edit: t('titlebar.edit'),
@@ -49,12 +51,54 @@ function runMenuCommand(menu: MenuKey, actionKey: string): void {
   openMenu.value = null;
   emit('command', menu, actionKey);
 }
+
+function closeMenu(): void {
+  openMenu.value = null;
+}
+
+function onDocumentPointerDown(event: PointerEvent): void {
+  if (!openMenu.value) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    closeMenu();
+    return;
+  }
+
+  if (!titlebarRef.value?.contains(target)) {
+    closeMenu();
+  }
+}
+
+function onDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && openMenu.value) {
+    event.preventDefault();
+    closeMenu();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown);
+  document.addEventListener('keydown', onDocumentKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  document.removeEventListener('keydown', onDocumentKeydown);
+});
 </script>
 
 <template>
-  <header class="titlebar">
+  <header ref="titlebarRef" class="titlebar">
     <div class="titlebar-left">
-      <button class="titlebar-icon" type="button" @click="emit('toggleSidebar')">
+      <button
+        class="titlebar-icon"
+        type="button"
+        :data-tooltip="props.collapsed ? t('shell.action.expandSidebar') : t('shell.action.collapseSidebar')"
+        @click="emit('toggleSidebar')"
+      >
         <i :class="props.collapsed ? 'mdi mdi-dock-right' : 'mdi mdi-dock-left'" />
       </button>
 
@@ -77,17 +121,20 @@ function runMenuCommand(menu: MenuKey, actionKey: string): void {
     </div>
 
     <div class="titlebar-drag" data-tauri-drag-region>
-      <span class="titlebar-brand">{{ t('common.appName') }}</span>
+      <div class="titlebar-brand-lockup" data-tauri-drag-region>
+        <img class="titlebar-logo" :src="appLogoUrl" alt="" draggable="false" />
+        <span class="titlebar-brand">{{ t('common.appName') }}</span>
+      </div>
     </div>
 
     <div class="titlebar-right">
-      <button class="titlebar-icon" type="button" @click="minimizeWindow">
+      <button class="titlebar-icon" type="button" :data-tooltip="t('titlebar.minimize')" @click="minimizeWindow">
         <i class="mdi mdi-window-minimize" />
       </button>
-      <button class="titlebar-icon" type="button" @click="toggleMaximizeWindow">
+      <button class="titlebar-icon" type="button" :data-tooltip="t('titlebar.maximizeRestore')" @click="toggleMaximizeWindow">
         <i class="mdi mdi-checkbox-blank-outline" />
       </button>
-      <button class="titlebar-icon titlebar-icon-danger" type="button" @click="closeWindow">
+      <button class="titlebar-icon titlebar-icon-danger" type="button" :data-tooltip="t('titlebar.close')" @click="closeWindow">
         <i class="mdi mdi-close" />
       </button>
     </div>

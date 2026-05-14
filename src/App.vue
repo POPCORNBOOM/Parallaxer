@@ -10,6 +10,7 @@ import MonitorDetail from './components/workbench/MonitorDetail.vue';
 import ConfigurationEditor from './components/workbench/ConfigurationEditor.vue';
 import PlaylistEditor from './components/workbench/PlaylistEditor.vue';
 import SettingsView from './components/workbench/SettingsView.vue';
+import AboutView from './components/workbench/AboutView.vue';
 import { CONFIGURATION_PREVIEW_RELATIVE_PATH, isConfigurationPreviewPayload } from './lib/domain';
 import {
   PRESENTATION_CONTROL_EVENT,
@@ -21,10 +22,8 @@ import {
 import { getPresentationState, onPresentationSync, stopPresentation, toAssetUrl } from './lib/tauri';
 import {
   buildMediaFrameDimensions,
-  buildMediaFrameStyle,
   buildSharedSliceSourceRect,
   buildMonitorTransform,
-  getMonitorMediaFit,
   isQuarterTurnRotation
 } from './lib/ui';
 import { useWorkbench } from './stores/workbench';
@@ -55,9 +54,36 @@ const presentationViewport = ref({
   height: window.innerHeight
 });
 const presentationDrawerOpen = ref(false);
+const presentationConsoleRef = ref<HTMLElement | null>(null);
+const systemPrefersLight = ref(false);
 const { t } = useI18n({ useScope: 'global' });
 
 const workbench = useWorkbench();
+const resolvedThemeMode = computed(() => {
+  if (workbench.state.settings.themeMode === 'system') {
+    return systemPrefersLight.value ? 'light' : 'dark';
+  }
+
+  return workbench.state.settings.themeMode;
+});
+const shellThemeClass = computed(() =>
+  resolvedThemeMode.value === 'light' ? 'shell-theme-light' : 'shell-theme-graphite'
+);
+const shellMainStyle = computed(() => ({
+  '--shell-sidebar-width': `${Math.max(workbench.state.sidebarWidth, 0)}px`
+}));
+const THEME_CLASS_NAMES = ['shell-theme-light', 'shell-theme-graphite'] as const;
+
+function applyDocumentThemeClass(className: string): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.documentElement.classList.remove(...THEME_CLASS_NAMES);
+  document.body.classList.remove(...THEME_CLASS_NAMES);
+  document.documentElement.classList.add(className);
+  document.body.classList.add(className);
+}
 
 const presentationDisplay = computed(() => {
   if (!presentationPayload.value) {
@@ -98,6 +124,24 @@ const presentationVideoDisplays = computed(() =>
   })
 );
 
+const presentationAudioOwnerLabel = computed(() => {
+  const payload = isPresentationWindow ? presentationPayload.value : workbench.state.playback.payload;
+  const firstVideoDisplay = payload?.displays.find((display) => {
+    const path = display.relativePath.toLowerCase();
+    return ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v'].some((extension) => path.endsWith(extension));
+  });
+
+  return firstVideoDisplay?.windowLabel ?? null;
+});
+
+const presentationShouldPlayAudio = computed(() => {
+  if (!presentationIsVideo.value) {
+    return false;
+  }
+
+  return presentationAudioOwnerLabel.value === currentLabel;
+});
+
 const presentationTransform = computed(() => {
   const display = presentationDisplay.value;
   if (!display) {
@@ -106,10 +150,6 @@ const presentationTransform = computed(() => {
 
   return buildMonitorTransform(display.mapping);
 });
-
-const presentationLocalSurfaceStyle = computed(() => ({
-  transform: presentationTransform.value
-}));
 
 const presentationContentViewportSize = computed(() => {
   const display = presentationDisplay.value;
@@ -128,7 +168,8 @@ const presentationMediaFrameStyle = computed(() => {
   const dimensions = presentationMediaFrameDimensions.value;
   return {
     width: `${dimensions.width}px`,
-    height: `${dimensions.height}px`
+    height: `${dimensions.height}px`,
+    transform: `translate(-50%, -50%) ${presentationTransform.value}`.trim()
   };
 });
 
@@ -150,7 +191,6 @@ const presentationMediaFrameDimensions = computed(() => {
   const mediaHeight = intrinsicHeight;
 
   return buildMediaFrameDimensions({
-    fit: getMonitorMediaFit(display.mapping),
     viewportWidth,
     viewportHeight,
     mediaWidth,
@@ -242,6 +282,39 @@ function syncPresentationViewport(): void {
   };
 }
 
+let systemThemeMediaQuery: MediaQueryList | null = null;
+let removeSystemThemeListener: (() => void) | null = null;
+
+function syncSystemThemePreference(): void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    systemPrefersLight.value = false;
+    return;
+  }
+
+  systemThemeMediaQuery = systemThemeMediaQuery ?? window.matchMedia('(prefers-color-scheme: light)');
+  systemPrefersLight.value = systemThemeMediaQuery.matches;
+}
+
+function bindSystemThemeListener(): void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return;
+  }
+
+  syncSystemThemePreference();
+  const mediaQuery = systemThemeMediaQuery ?? window.matchMedia('(prefers-color-scheme: light)');
+  const listener = (event: MediaQueryListEvent): void => {
+    systemPrefersLight.value = event.matches;
+  };
+
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', listener);
+    removeSystemThemeListener = () => mediaQuery.removeEventListener('change', listener);
+  } else {
+    mediaQuery.addListener(listener);
+    removeSystemThemeListener = () => mediaQuery.removeListener(listener);
+  }
+}
+
 async function emitPresentationVideoSignal(signal: PresentationVideoSignal): Promise<void> {
   await getCurrentWebviewWindow().emitTo('main', PRESENTATION_VIDEO_EVENT, {
     signal,
@@ -287,6 +360,17 @@ function resetVideoSyncState(): void {
 async function handlePresentationVideoSignal(signal: PresentationVideoSignal): Promise<void> {
   const video = presentationVideoElement.value;
   if (!video || !presentationIsVideo.value) {
+    return;
+  }
+
+  if (signal === 'seek-backward') {
+    video.currentTime = Math.max(0, video.currentTime - 5);
+    return;
+  }
+
+  if (signal === 'seek-forward') {
+    const duration = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY;
+    video.currentTime = Math.min(duration, video.currentTime + 5);
     return;
   }
 
@@ -373,10 +457,29 @@ async function handlePlaybackControl(control: PlaybackControl): Promise<void> {
   }
 }
 
-function onKeydown(event: KeyboardEvent): void {
+function broadcastVideoSignal(signal: Extract<PresentationVideoSignal, 'toggle-pause' | 'seek-backward' | 'seek-forward'>): void {
+  const videoLabels = presentationVideoDisplays.value.map((display) => display.windowLabel);
+  if (videoLabels.length === 0) {
+    return;
+  }
+
+  if (signal === 'toggle-pause') {
+    presentationVideosPaused.value = !presentationVideosPaused.value;
+  }
+
+  void Promise.all(
+    videoLabels.map((label) =>
+      getCurrentWebviewWindow().emitTo(label, PRESENTATION_VIDEO_EVENT, {
+        signal
+      })
+    )
+  );
+}
+
+function handlePresentationHotkeys(event: KeyboardEvent, target: 'presentation-window' | 'presentation-console'): void {
   if (event.key === 'Escape') {
     event.preventDefault();
-    if (isPresentationWindow) {
+    if (target === 'presentation-window') {
       void stopPresentation();
       return;
     }
@@ -386,8 +489,23 @@ function onKeydown(event: KeyboardEvent): void {
   }
 
   if (event.key === 'ArrowLeft') {
+    if (event.shiftKey) {
+      if (!presentationIsVideo.value && presentationVideoDisplays.value.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      if (target === 'presentation-window') {
+        void emitPresentationVideoSignal('seek-backward');
+        return;
+      }
+
+      broadcastVideoSignal('seek-backward');
+      return;
+    }
+
     event.preventDefault();
-    if (isPresentationWindow) {
+    if (target === 'presentation-window') {
       void emitPresentationControl('previous');
       return;
     }
@@ -397,8 +515,23 @@ function onKeydown(event: KeyboardEvent): void {
   }
 
   if (event.key === 'ArrowRight') {
+    if (event.shiftKey) {
+      if (!presentationIsVideo.value && presentationVideoDisplays.value.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      if (target === 'presentation-window') {
+        void emitPresentationVideoSignal('seek-forward');
+        return;
+      }
+
+      broadcastVideoSignal('seek-forward');
+      return;
+    }
+
     event.preventDefault();
-    if (isPresentationWindow) {
+    if (target === 'presentation-window') {
       void emitPresentationControl('next');
       return;
     }
@@ -413,33 +546,30 @@ function onKeydown(event: KeyboardEvent): void {
     }
 
     event.preventDefault();
-    if (isPresentationWindow) {
+    if (target === 'presentation-window') {
       void emitPresentationVideoSignal('toggle-pause');
       return;
     }
 
-    const videoLabels = presentationVideoDisplays.value.map((display) => display.windowLabel);
-    if (videoLabels.length === 0) {
-      return;
-    }
-
-    presentationVideosPaused.value = !presentationVideosPaused.value;
-    void Promise.all(
-      videoLabels.map((label) =>
-        getCurrentWebviewWindow().emitTo(label, PRESENTATION_VIDEO_EVENT, {
-          signal: 'toggle-pause' as PresentationVideoSignal
-        })
-      )
-    );
+    broadcastVideoSignal('toggle-pause');
   }
 }
 
+function onWindowKeydown(event: KeyboardEvent): void {
+  handlePresentationHotkeys(event, 'presentation-window');
+}
+
+function onPresentationConsoleKeydown(event: KeyboardEvent): void {
+  handlePresentationHotkeys(event, 'presentation-console');
+}
+
 onMounted(async () => {
-  window.addEventListener('keydown', onKeydown);
   window.addEventListener('resize', syncPresentationViewport);
   syncPresentationViewport();
+  bindSystemThemeListener();
 
   if (isPresentationWindow) {
+    window.addEventListener('keydown', onWindowKeydown);
     presentationUnlisten.value = await onPresentationSync((payload) => {
       presentationPayload.value = payload.active ? payload : null;
     });
@@ -485,12 +615,27 @@ watch(
 );
 
 watch(
+  shellThemeClass,
+  (className) => {
+    applyDocumentThemeClass(className);
+  },
+  { immediate: true }
+);
+
+watch(
   () => workbench.state.playback.active,
-  (active) => {
+  async (active) => {
     if (!active) {
       resetVideoSyncState();
       presentationVideosPaused.value = false;
       presentationDrawerOpen.value = false;
+      presentationConsoleRef.value?.blur();
+      return;
+    }
+
+    if (!isPresentationWindow && !activePresentationIsPreview.value) {
+      await Promise.resolve();
+      presentationConsoleRef.value?.focus();
     }
   }
 );
@@ -505,9 +650,28 @@ watch(
   }
 );
 
+watch(
+  () => presentationShouldPlayAudio.value,
+  (shouldPlayAudio) => {
+    const video = presentationVideoElement.value;
+    if (!video) {
+      return;
+    }
+
+    video.muted = !shouldPlayAudio;
+    video.volume = shouldPlayAudio ? 1 : 0;
+  },
+  { immediate: true }
+);
+
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('keydown', onWindowKeydown);
   window.removeEventListener('resize', syncPresentationViewport);
+
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.remove(...THEME_CLASS_NAMES);
+    document.body.classList.remove(...THEME_CLASS_NAMES);
+  }
 
   if (presentationUnlisten.value) {
     void presentationUnlisten.value();
@@ -523,6 +687,11 @@ onBeforeUnmount(() => {
 
   if (videoUnlisten.value) {
     void videoUnlisten.value();
+  }
+
+  if (removeSystemThemeListener) {
+    removeSystemThemeListener();
+    removeSystemThemeListener = null;
   }
 });
 </script>
@@ -550,15 +719,14 @@ onBeforeUnmount(() => {
       <div class="presentation-media-viewport" :style="presentationViewportStyle">
         <div class="presentation-media-canvas" :style="{ transform: presentationRotationTransform }">
           <div class="presentation-media-frame" :style="presentationMediaFrameStyle">
-            <div class="presentation-media-local-surface" :style="presentationLocalSurfaceStyle">
-              <div class="presentation-media-surface" :style="presentationMediaSurfaceStyle">
-                <video v-if="presentationIsVideo" ref="presentationVideoElement" :src="presentationAssetUrl"
-                  class="presentation-media" :style="presentationMediaStyle" muted playsinline preload="auto"
-                  @canplay="onPresentationVideoCanPlay"
-                  @ended="emitPresentationVideoSignal('ended')" />
-                <img v-else ref="presentationImageElement" :src="presentationAssetUrl" class="presentation-media"
-                  :style="presentationMediaStyle" alt="" @load="onPresentationImageLoad" />
-              </div>
+            <div class="presentation-media-surface" :style="presentationMediaSurfaceStyle">
+              <video v-if="presentationIsVideo" ref="presentationVideoElement" :src="presentationAssetUrl"
+                class="presentation-media" :style="presentationMediaStyle" :muted="!presentationShouldPlayAudio"
+                playsinline preload="auto"
+                @canplay="onPresentationVideoCanPlay"
+                @ended="emitPresentationVideoSignal('ended')" />
+              <img v-else ref="presentationImageElement" :src="presentationAssetUrl" class="presentation-media"
+                :style="presentationMediaStyle" alt="" @load="onPresentationImageLoad" />
             </div>
           </div>
         </div>
@@ -569,12 +737,13 @@ onBeforeUnmount(() => {
     </div>
   </main>
 
-  <main v-else class="shell-root shell-theme-graphite">
+  <main v-else class="shell-root" :class="shellThemeClass">
     <TitleBar :collapsed="workbench.state.sidebarCollapsed" @toggle-sidebar="workbench.toggleSidebar"
       @command="(_, actionKey) => workbench.handleMenuCommand(actionKey)" />
 
-    <section class="shell-main" :class="{ 'shell-main-collapsed': workbench.state.sidebarCollapsed }">
-      <Sidebar v-if="!workbench.state.sidebarCollapsed" :collapsed="workbench.state.sidebarCollapsed"
+    <section class="shell-main" :class="{ 'shell-main-collapsed': workbench.state.sidebarCollapsed }"
+      :style="shellMainStyle">
+      <Sidebar :collapsed="workbench.state.sidebarCollapsed"
         :width="workbench.state.sidebarWidth" :head-buttons="workbench.sidebarModel.value.headButtons"
         :body-lists="workbench.sidebarModel.value.bodyLists" :tail-buttons="workbench.sidebarModel.value.tailButtons"
         :list-items="workbench.sidebarModel.value.listItems" @resize="workbench.setSidebarWidth"
@@ -587,7 +756,10 @@ onBeforeUnmount(() => {
         :lock-body-scroll="workbench.state.playback.active && !activePresentationIsPreview"
         :flush-body="workbench.state.playback.active && !activePresentationIsPreview"
         @action="workbench.handleWorkspaceAction">
-        <section v-if="workbench.state.playback.active && !activePresentationIsPreview" class="presentation-console"
+        <section v-if="workbench.state.playback.active && !activePresentationIsPreview" ref="presentationConsoleRef"
+          class="presentation-console"
+          tabindex="0"
+          @keydown="onPresentationConsoleKeydown"
           :class="{ open: presentationDrawerOpen }">
           <div class="presentation-console-body">
             <div v-if="activePresentation" class="presentation-console-header"
@@ -653,13 +825,13 @@ onBeforeUnmount(() => {
                     (deviceId, value, syncAll) =>
                       workbench.updateConfigurationMappingValue('mirror', value, deviceId, syncAll)
                   "
-                  @fit-changed="
+                  @scale-x-changed="
                     (deviceId, value, syncAll) =>
-                      workbench.updateConfigurationMappingValue('fit', value, deviceId, syncAll)
+                      workbench.updateConfigurationMappingValue('scaleX', value, deviceId, syncAll)
                   "
-                  @scale-changed="
+                  @scale-y-changed="
                     (deviceId, value, syncAll) =>
-                      workbench.updateConfigurationMappingValue('scale', value, deviceId, syncAll)
+                      workbench.updateConfigurationMappingValue('scaleY', value, deviceId, syncAll)
                   "
                   @offset-x-changed="
                     (deviceId, value, syncAll) =>
@@ -687,7 +859,7 @@ onBeforeUnmount(() => {
             workbench.updateSelectedConfigurationName
           " @description-changed="
             workbench.updateSelectedConfigurationDescription
-          " @add-monitor="workbench.addMonitorToSelectedConfiguration"
+          " @create-configuration="workbench.createConfiguration" @add-monitor="workbench.addMonitorToSelectedConfiguration"
           @select-monitor="workbench.selectConfigurationMonitor"
           @remove-monitor="workbench.removeMonitorFromSelectedConfiguration"
           @reorder-monitors="workbench.reorderSelectedConfigurationMonitors" @short-name-changed="
@@ -701,12 +873,12 @@ onBeforeUnmount(() => {
           " @mirror-changed="
             (deviceId, value, syncAll) =>
               workbench.updateConfigurationMappingValue('mirror', value, deviceId, syncAll)
-          " @fit-changed="
+          " @scale-x-changed="
             (deviceId, value, syncAll) =>
-              workbench.updateConfigurationMappingValue('fit', value, deviceId, syncAll)
-          " @scale-changed="
+              workbench.updateConfigurationMappingValue('scaleX', value, deviceId, syncAll)
+          " @scale-y-changed="
             (deviceId, value, syncAll) =>
-              workbench.updateConfigurationMappingValue('scale', value, deviceId, syncAll)
+              workbench.updateConfigurationMappingValue('scaleY', value, deviceId, syncAll)
           " @offset-x-changed="
             (deviceId, value, syncAll) =>
               workbench.updateConfigurationMappingValue('offsetX', value, deviceId, syncAll)
@@ -716,14 +888,21 @@ onBeforeUnmount(() => {
           " />
 
         <PlaylistEditor v-else-if="workbench.state.currentPage === 'playlist'"
-          :playlist="workbench.selectedPlaylist.value" :configurations="workbench.state.configurations"
+          :playlist="workbench.selectedPlaylist.value" :configurations="workbench.state.configurations" :available-monitors="workbench.state.monitors"
+          :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma"
           @name-changed="workbench.updateSelectedPlaylistName"
           @source-folder-picked="workbench.choosePlaylistSourceFolder"
           @configuration-changed="workbench.updateSelectedPlaylistConfiguration"
+          @create-configuration="workbench.createConfiguration"
           @visibility-changed="workbench.updateSelectedPlaylistEntryVisibility" />
 
-        <SettingsView v-else :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma"
-          @monitor-strip-gamma-changed="workbench.updateMonitorStripHeightGamma" />
+        <SettingsView v-else-if="workbench.state.currentPage === 'settings'"
+          :monitor-strip-height-gamma="workbench.state.settings.monitorStripHeightGamma"
+          :theme-mode="workbench.state.settings.themeMode"
+          @monitor-strip-gamma-changed="workbench.updateMonitorStripHeightGamma"
+          @theme-mode-changed="workbench.updateThemeMode" />
+
+        <AboutView v-else />
       </WorkspaceFrame>
     </section>
   </main>
@@ -753,14 +932,6 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   transform-origin: center;
-}
-
-.presentation-media-local-surface {
-  position: absolute;
-  inset: 0;
-  transform-origin: center;
-  backface-visibility: hidden;
-  overflow: hidden;
 }
 
 .presentation-media-surface {
@@ -972,7 +1143,7 @@ onBeforeUnmount(() => {
 .presentation-console-title {
   margin: 0;
   font-size: 28px;
-  font-weight: 400;
+  font-weight: var(--font-weight-ui-title);
   color: var(--color-text-primary);
 }
 
@@ -1043,7 +1214,7 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--color-text-primary);
   font-size: 16px;
-  font-weight: 400;
+  font-weight: var(--font-weight-ui-section);
 }
 
 .presentation-console-button {

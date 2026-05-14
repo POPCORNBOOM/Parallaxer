@@ -1,7 +1,7 @@
 export type Rotation = 0 | 90 | 180 | 270;
 export type MirrorMode = 'none' | 'horizontal' | 'vertical';
 export type MappingMode = 'same-folder-shared-files' | 'same-name-separated-by-shortname';
-export type MediaFit = 'contain' | 'cover' | 'fill' | 'none';
+export type ThemeMode = 'dark' | 'light' | 'system';
 
 export interface MonitorRecord {
   deviceId: string;
@@ -22,8 +22,8 @@ export interface MonitorRecord {
 export interface MonitorMapping {
   rotation: Rotation;
   mirror: MirrorMode;
-  fit?: MediaFit;
-  scale?: number;
+  scaleX?: number;
+  scaleY?: number;
   offsetX?: number;
   offsetY?: number;
 }
@@ -79,6 +79,7 @@ export interface AppSettings {
   monitorHistory: MonitorRecord[];
   recentPlaylistFolders: string[];
   cache: Record<string, unknown>;
+  themeMode: ThemeMode;
   monitorStripHeightGamma: number;
   lastSelectedPage?: string;
   lastSelectedEntityId?: string;

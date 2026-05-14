@@ -89,11 +89,6 @@ const { t } = useI18n({ useScope: 'global' });
   gap: 10px;
 }
 
-.detail-label {
-  font-size: 11px;
-  letter-spacing: 0.03em;
-}
-
 .detail-input,
 .detail-grid {
   font-size: 13px;
@@ -107,6 +102,8 @@ const { t } = useI18n({ useScope: 'global' });
   display: block;
   margin-top: 2px;
   line-height: 1.35;
+  color: var(--color-detail-value);
+  font-weight: var(--font-weight-ui-value);
 }
 
 .detail-span {
@@ -118,7 +115,7 @@ const { t } = useI18n({ useScope: 'global' });
   margin-top: 4px;
   font-size: 11px;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--color-text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
 }

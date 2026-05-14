@@ -40,7 +40,8 @@ function createPayload(count = 2): PresentationPayload {
       mapping: {
         rotation: 0,
         mirror: 'none',
-        scale: 1,
+        scaleX: 1,
+        scaleY: 1,
         offsetX: 0,
         offsetY: 0
       }
@@ -88,7 +89,8 @@ describe('tauri frontend contract', () => {
           mapping: {
             rotation: 0,
             mirror: 'none',
-            scale: 1,
+            scaleX: 1,
+            scaleY: 1,
             offsetX: 0,
             offsetY: 0
           }
@@ -107,7 +109,8 @@ describe('tauri frontend contract', () => {
           mapping: {
             rotation: 0,
             mirror: 'none',
-            scale: 1,
+            scaleX: 1,
+            scaleY: 1,
             offsetX: 0,
             offsetY: 0
           }

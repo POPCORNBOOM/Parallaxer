@@ -13,7 +13,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State};
 
 const APP_DIR_NAME: &str = ".parallaxer";
-const SETTINGS_FILE_NAME: &str = ".parallaxer.json";
+const SETTINGS_FILE_NAME: &str = ".parallaxer";
 const CONFIGURATIONS_DIR_NAME: &str = "configurations";
 const PLAYLIST_FILE_NAME: &str = "playlist.json";
 const PRESENTATION_EVENT: &str = "presentation:sync";
@@ -97,10 +97,24 @@ struct AppSettings {
     monitor_history: Vec<MonitorRecord>,
     recent_playlist_folders: Vec<String>,
     cache: BTreeMap<String, Value>,
+    #[serde(default = "default_theme_mode")]
+    theme_mode: String,
     #[serde(default = "default_monitor_strip_height_gamma")]
     monitor_strip_height_gamma: f64,
     last_selected_page: Option<String>,
     last_selected_entity_id: Option<String>,
+}
+
+fn default_theme_mode() -> String {
+    "dark".to_string()
+}
+
+fn normalize_theme_mode(value: String) -> String {
+    if value == "light" {
+        "light".to_string()
+    } else {
+        "dark".to_string()
+    }
 }
 
 fn default_monitor_strip_height_gamma() -> f64 {
@@ -114,6 +128,7 @@ impl Default for AppSettings {
             monitor_history: Vec::new(),
             recent_playlist_folders: Vec::new(),
             cache: BTreeMap::new(),
+            theme_mode: default_theme_mode(),
             monitor_strip_height_gamma: default_monitor_strip_height_gamma(),
             last_selected_page: None,
             last_selected_entity_id: None,
@@ -126,10 +141,36 @@ impl Default for AppSettings {
 struct MonitorMapping {
     rotation: u16,
     mirror: String,
-    fit: Option<String>,
-    scale: Option<f64>,
+    scale_x: Option<f64>,
+    scale_y: Option<f64>,
     offset_x: Option<f64>,
     offset_y: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyMonitorMapping {
+    rotation: u16,
+    mirror: String,
+    scale: Option<f64>,
+    scale_x: Option<f64>,
+    scale_y: Option<f64>,
+    offset_x: Option<f64>,
+    offset_y: Option<f64>,
+}
+
+impl From<LegacyMonitorMapping> for MonitorMapping {
+    fn from(value: LegacyMonitorMapping) -> Self {
+        let uniform_scale = value.scale.unwrap_or(1.0);
+        Self {
+            rotation: value.rotation,
+            mirror: value.mirror,
+            scale_x: Some(value.scale_x.unwrap_or(uniform_scale)),
+            scale_y: Some(value.scale_y.unwrap_or(uniform_scale)),
+            offset_x: value.offset_x,
+            offset_y: value.offset_y,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -141,6 +182,26 @@ struct ConfigurationMonitor {
     mapping: MonitorMapping,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyConfigurationMonitor {
+    device_id: String,
+    short_name: String,
+    order: i32,
+    mapping: LegacyMonitorMapping,
+}
+
+impl From<LegacyConfigurationMonitor> for ConfigurationMonitor {
+    fn from(value: LegacyConfigurationMonitor) -> Self {
+        Self {
+            device_id: value.device_id,
+            short_name: value.short_name,
+            order: value.order,
+            mapping: value.mapping.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ConfigurationRecord {
@@ -149,6 +210,28 @@ struct ConfigurationRecord {
     description: String,
     favorite: Option<bool>,
     monitors: Vec<ConfigurationMonitor>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyConfigurationRecord {
+    id: String,
+    name: String,
+    description: String,
+    favorite: Option<bool>,
+    monitors: Vec<LegacyConfigurationMonitor>,
+}
+
+impl From<LegacyConfigurationRecord> for ConfigurationRecord {
+    fn from(value: LegacyConfigurationRecord) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            description: value.description,
+            favorite: value.favorite,
+            monitors: value.monitors.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -235,6 +318,13 @@ struct PlatformMonitorMetadata {
     product_code: Option<String>,
     serial_number: Option<String>,
     edid: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PlatformMonitorCandidate {
+    width: Option<u32>,
+    height: Option<u32>,
+    metadata: PlatformMonitorMetadata,
 }
 
 fn normalize_path(path: &Path) -> String {
@@ -449,6 +539,119 @@ fn build_edid_device_id_from_bytes(bytes: &[u8]) -> Option<String> {
     ))
 }
 
+fn metadata_from_edid_bytes(
+    edid_bytes: &[u8],
+    system_name: Option<String>,
+    friendly_name: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> PlatformMonitorCandidate {
+    let parsed_identity = parse_edid_identity(edid_bytes);
+    let manufacturer = parsed_identity
+        .as_ref()
+        .map(|identity| identity.0.clone())
+        .filter(|value| !value.trim().is_empty());
+    let product_code = parsed_identity
+        .as_ref()
+        .map(|identity| identity.1.clone())
+        .filter(|value| !value.trim().is_empty());
+    let serial_number = parsed_identity
+        .as_ref()
+        .map(|identity| identity.2.clone())
+        .filter(|value| !value.trim().is_empty());
+
+    PlatformMonitorCandidate {
+        width,
+        height,
+        metadata: PlatformMonitorMetadata {
+            stable_device_id: build_edid_device_id_from_bytes(edid_bytes).or_else(|| {
+                build_edid_device_id(&PlatformMonitorMetadata {
+                    manufacturer: manufacturer.clone(),
+                    product_code: product_code.clone(),
+                    serial_number: serial_number.clone(),
+                    ..Default::default()
+                })
+            }),
+            instance_key: None,
+            system_name,
+            friendly_name,
+            refresh_rate: None,
+            manufacturer,
+            product_code,
+            serial_number,
+            edid: Some(encode_edid_hex(edid_bytes)),
+        },
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn assign_platform_monitor_candidates(
+    monitors: &[tauri::Monitor],
+    candidates: Vec<PlatformMonitorCandidate>,
+) -> Vec<PlatformMonitorMetadata> {
+    let mut assignments = vec![PlatformMonitorMetadata::default(); monitors.len()];
+    let mut used_candidates = BTreeSet::new();
+
+    for (index, monitor) in monitors.iter().enumerate() {
+        let size = monitor.size();
+        let monitor_name = monitor
+            .name()
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+
+        let matching_indices = candidates
+            .iter()
+            .enumerate()
+            .filter(|(candidate_index, candidate)| {
+                !used_candidates.contains(candidate_index)
+                    && candidate.width == Some(size.width)
+                    && candidate.height == Some(size.height)
+            })
+            .map(|(candidate_index, _)| candidate_index)
+            .collect::<Vec<_>>();
+
+        let selected_index = if monitors.len() == 1 && candidates.len() == 1 {
+            Some(0)
+        } else if matching_indices.len() == 1 {
+            matching_indices.first().copied()
+        } else {
+            let named_indices = candidates
+                .iter()
+                .enumerate()
+                .filter(|(candidate_index, candidate)| {
+                    !used_candidates.contains(candidate_index)
+                        && candidate
+                            .metadata
+                            .system_name
+                            .as_ref()
+                            .or(candidate.metadata.friendly_name.as_ref())
+                            .map(|value| {
+                                let candidate_name = value.to_ascii_lowercase();
+                                !monitor_name.is_empty()
+                                    && (candidate_name.contains(&monitor_name)
+                                        || monitor_name.contains(&candidate_name))
+                            })
+                            .unwrap_or(false)
+                })
+                .map(|(candidate_index, _)| candidate_index)
+                .collect::<Vec<_>>();
+
+            if named_indices.len() == 1 {
+                named_indices.first().copied()
+            } else {
+                None
+            }
+        };
+
+        if let Some(candidate_index) = selected_index {
+            used_candidates.insert(candidate_index);
+            assignments[index] = candidates[candidate_index].metadata.clone();
+        }
+    }
+
+    assignments
+}
+
 fn supported_media_extensions() -> &'static [&'static str] {
     &[
         "png", "jpg", "jpeg", "bmp", "gif", "webp", "avif", "mp4", "webm", "mov", "mkv", "avi",
@@ -521,6 +724,15 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     ensure_parent_dir(path)?;
     let content = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn read_configuration_json(path: &Path) -> Result<ConfigurationRecord, String> {
+    let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str::<ConfigurationRecord>(&content).or_else(|_| {
+        serde_json::from_str::<LegacyConfigurationRecord>(&content)
+            .map(Into::into)
+            .map_err(|error| error.to_string())
+    })
 }
 
 fn collect_media_files(base: &Path) -> Result<BTreeMap<String, String>, String> {
@@ -934,12 +1146,143 @@ fn platform_monitor_metadata(monitors: &[tauri::Monitor]) -> Vec<PlatformMonitor
 
 #[cfg(target_os = "macos")]
 fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMonitorMetadata> {
-    vec![PlatformMonitorMetadata::default(); monitors.len()]
+    use std::process::Command;
+
+    fn extract_quoted_string(line: &str) -> Option<String> {
+        let start = line.find('"')?;
+        let end = line[start + 1..].find('"')?;
+        Some(line[start + 1..start + 1 + end].to_string())
+    }
+
+    fn extract_hex_bytes_from_line(line: &str) -> Option<Vec<u8>> {
+        let start = line.find('<')?;
+        let end = line[start + 1..].find('>')?;
+        let payload = line[start + 1..start + 1 + end]
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
+
+        if payload.len() < 2 || payload.len() % 2 != 0 {
+            return None;
+        }
+
+        let mut bytes = Vec::with_capacity(payload.len() / 2);
+        for index in (0..payload.len()).step_by(2) {
+            let byte = u8::from_str_radix(&payload[index..index + 2], 16).ok()?;
+            bytes.push(byte);
+        }
+
+        Some(bytes)
+    }
+
+    let output = Command::new("ioreg")
+        .args(["-lw0", "-r", "-c", "AppleDisplay"])
+        .output();
+
+    let Ok(output) = output else {
+        return vec![PlatformMonitorMetadata::default(); monitors.len()];
+    };
+
+    if !output.status.success() {
+        return vec![PlatformMonitorMetadata::default(); monitors.len()];
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut candidates = Vec::new();
+    let mut current_system_name: Option<String> = None;
+    let mut current_friendly_name: Option<String> = None;
+    let mut current_width: Option<u32> = None;
+    let mut current_height: Option<u32> = None;
+
+    for line in text.lines() {
+        if line.contains("IODisplayLocation") {
+            current_system_name = extract_quoted_string(line);
+        } else if line.contains("\"DisplayProductName\"") {
+            current_friendly_name = extract_quoted_string(line);
+        } else if line.contains("\"DisplayPixelDimensions\"") {
+            if let Some(start) = line.find('(') {
+                if let Some(end) = line[start + 1..].find(')') {
+                    let numbers = line[start + 1..start + 1 + end]
+                        .split(',')
+                        .map(|value| value.trim().parse::<u32>().ok())
+                        .collect::<Vec<_>>();
+                    if numbers.len() >= 2 {
+                        current_width = numbers[0];
+                        current_height = numbers[1];
+                    }
+                }
+            }
+        } else if line.contains("\"IODisplayEDID\"") {
+            if let Some(edid_bytes) = extract_hex_bytes_from_line(line) {
+                candidates.push(metadata_from_edid_bytes(
+                    &edid_bytes,
+                    current_system_name.clone(),
+                    current_friendly_name.clone(),
+                    current_width,
+                    current_height,
+                ));
+            }
+
+            current_system_name = None;
+            current_friendly_name = None;
+            current_width = None;
+            current_height = None;
+        }
+    }
+
+    assign_platform_monitor_candidates(monitors, candidates)
 }
 
 #[cfg(target_os = "linux")]
 fn platform_monitor_metadata_impl(monitors: &[tauri::Monitor]) -> Vec<PlatformMonitorMetadata> {
-    vec![PlatformMonitorMetadata::default(); monitors.len()]
+    let drm_dir = Path::new("/sys/class/drm");
+    let Ok(entries) = fs::read_dir(drm_dir) else {
+        return vec![PlatformMonitorMetadata::default(); monitors.len()];
+    };
+
+    let mut candidates = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let edid_path = path.join("edid");
+        if !edid_path.is_file() {
+            continue;
+        }
+
+        let Ok(edid_bytes) = fs::read(&edid_path) else {
+            continue;
+        };
+        if edid_bytes.len() < 128 {
+            continue;
+        }
+
+        let mode_path = path.join("modes");
+        let (width, height) = fs::read_to_string(&mode_path)
+            .ok()
+            .and_then(|content| {
+                content.lines().find_map(|line| {
+                    let (width, height) = line.split_once('x')?;
+                    Some((width.trim().parse::<u32>().ok()?, height.trim().parse::<u32>().ok()?))
+                })
+            })
+            .map(|(width, height)| (Some(width), Some(height)))
+            .unwrap_or((None, None));
+
+        let system_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_string());
+
+        candidates.push(metadata_from_edid_bytes(
+            &edid_bytes,
+            system_name,
+            None,
+            width,
+            height,
+        ));
+    }
+
+    assign_platform_monitor_candidates(monitors, candidates)
 }
 
 #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
@@ -1517,7 +1860,9 @@ fn load_app_settings() -> Result<AppSettings, String> {
 
 #[tauri::command]
 fn save_app_settings(settings: AppSettings) -> Result<(), String> {
-    write_json(&settings_file_path()?, &settings)
+    let mut normalized = settings;
+    normalized.theme_mode = normalize_theme_mode(normalized.theme_mode);
+    write_json(&settings_file_path()?, &normalized)
 }
 
 #[tauri::command]
@@ -1537,7 +1882,7 @@ fn list_configurations() -> Result<Vec<ConfigurationRecord>, String> {
             continue;
         }
 
-        let mut record = read_json::<ConfigurationRecord>(&path).map_err(|error| {
+        let mut record = read_configuration_json(&path).map_err(|error| {
             format!(
                 "Failed to read configuration {}: {error}",
                 normalize_path(&path)
@@ -1556,7 +1901,7 @@ fn list_configurations() -> Result<Vec<ConfigurationRecord>, String> {
 #[tauri::command]
 fn read_configuration(id: String) -> Result<ConfigurationRecord, String> {
     let path = configuration_file_path(&id)?;
-    let mut record = read_json::<ConfigurationRecord>(&path)?;
+    let mut record = read_configuration_json(&path)?;
     record.id = validate_identifier(&id)?;
     Ok(record)
 }
@@ -1738,8 +2083,8 @@ mod tests {
         MonitorMapping {
             rotation: 0,
             mirror: "none".to_string(),
-            fit: Some("contain".to_string()),
-            scale: Some(1.0),
+            scale_x: Some(1.0),
+            scale_y: Some(1.0),
             offset_x: Some(0.0),
             offset_y: Some(0.0),
         }
@@ -1793,8 +2138,8 @@ mod tests {
 
         assert_eq!(root, PathBuf::from("C:/Users/example/.parallaxer"));
         assert_eq!(
-            root.join(".parallaxer.json"),
-            PathBuf::from("C:/Users/example/.parallaxer/.parallaxer.json")
+            root.join(".parallaxer"),
+            PathBuf::from("C:/Users/example/.parallaxer/.parallaxer")
         );
         assert_eq!(
             root.join("configurations"),
@@ -1894,6 +2239,36 @@ mod tests {
     }
 
     #[test]
+    fn metadata_from_edid_bytes_preserves_parsed_identity() {
+        let mut edid = vec![0_u8; 128];
+        edid[..8].copy_from_slice(&[0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00]);
+        edid[8] = 0x10;
+        edid[9] = 0xac;
+        edid[10] = 0xb2;
+        edid[11] = 0xa1;
+        edid[12] = 0x78;
+        edid[13] = 0x56;
+        edid[14] = 0x34;
+        edid[15] = 0x12;
+
+        let candidate = metadata_from_edid_bytes(
+            &edid,
+            Some("card0-HDMI-A-1".to_string()),
+            Some("Dell".to_string()),
+            Some(1920),
+            Some(1080),
+        );
+
+        assert_eq!(candidate.width, Some(1920));
+        assert_eq!(candidate.height, Some(1080));
+        assert_eq!(
+            candidate.metadata.stable_device_id.as_deref(),
+            Some("edid:del:a1b2:305419896")
+        );
+        assert_eq!(candidate.metadata.edid.as_deref(), Some(encode_edid_hex(&edid).as_str()));
+    }
+
+    #[test]
     fn json_round_trip_uses_pretty_storage() {
         let temp_dir = unique_temp_dir("json-roundtrip");
         let path = temp_dir.join("settings.json");
@@ -1950,8 +2325,8 @@ mod tests {
                     mapping: MonitorMapping {
                         rotation: 0,
                         mirror: "none".to_string(),
-                        fit: Some("contain".to_string()),
-                        scale: Some(1.0),
+                        scale_x: Some(1.0),
+                        scale_y: Some(1.0),
                         offset_x: Some(0.0),
                         offset_y: Some(0.0),
                     },
@@ -1963,8 +2338,8 @@ mod tests {
                     mapping: MonitorMapping {
                         rotation: 0,
                         mirror: "none".to_string(),
-                        fit: Some("contain".to_string()),
-                        scale: Some(1.0),
+                        scale_x: Some(1.0),
+                        scale_y: Some(1.0),
                         offset_x: Some(0.0),
                         offset_y: Some(0.0),
                     },
@@ -2016,8 +2391,8 @@ mod tests {
                     mapping: MonitorMapping {
                         rotation: 0,
                         mirror: "none".to_string(),
-                        fit: Some("contain".to_string()),
-                        scale: Some(1.0),
+                        scale_x: Some(1.0),
+                        scale_y: Some(1.0),
                         offset_x: Some(0.0),
                         offset_y: Some(0.0),
                     },
@@ -2029,8 +2404,8 @@ mod tests {
                     mapping: MonitorMapping {
                         rotation: 0,
                         mirror: "none".to_string(),
-                        fit: Some("contain".to_string()),
-                        scale: Some(1.0),
+                        scale_x: Some(1.0),
+                        scale_y: Some(1.0),
                         offset_x: Some(0.0),
                         offset_y: Some(0.0),
                     },

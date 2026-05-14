@@ -82,6 +82,9 @@ export const messages = {
       file: 'File',
       edit: 'Edit',
       help: 'Help',
+      minimize: 'Minimize',
+      maximizeRestore: 'Maximize / Restore',
+      close: 'Close',
       newConfig: 'New Config',
       newPlaylist: 'New Playlist',
       openPlaylistFolder: 'Open Playlist Folder',
@@ -95,7 +98,8 @@ export const messages = {
         monitors: 'Monitors',
         configurations: 'Configurations',
         playlists: 'Playlists',
-        settings: 'Settings'
+        settings: 'Settings',
+        about: 'About'
       },
       sidebar: {
         live: 'live',
@@ -115,6 +119,8 @@ export const messages = {
         previous: 'Previous',
         stop: 'Stop',
         next: 'Next',
+        collapseSidebar: 'Collapse sidebar',
+        expandSidebar: 'Expand sidebar',
         forgetMonitor: 'Forget monitor',
         stopPreview: 'Stop preview',
         previewConfiguration: 'Preview configuration',
@@ -130,6 +136,8 @@ export const messages = {
         reloadPlaylists: 'Reload playlists',
         openPlaylistFolder: 'Open playlist folder',
         openSettings: 'Open settings',
+        collapseList: 'Collapse list',
+        expandList: 'Expand list',
         unfavoriteConfiguration: 'Unfavorite configuration',
         favoriteConfiguration: 'Favorite configuration',
         deleteConfiguration: 'Delete configuration',
@@ -150,15 +158,23 @@ export const messages = {
       currentConfiguration: 'Current configuration'
     },
     settings: {
+      themeMode: 'Theme',
+      themeSystem: 'Follow system',
+      themeDark: 'Dark',
+      themeLight: 'Light',
       appRoot: 'App Root',
       storageHint:
         'Settings and monitor labels are stored in ~/.parallaxer, while each playlist persists beside its source folder as playlist.json.',
-      monitorStripGamma: 'Monitor strip nonlinear scale gamma',
+      monitorStripGamma: 'Preview size contrast',
       monitorStripGammaHint:
-        'Adjust how aggressively smaller monitors are visually compressed in the layout strip.',
-      monitorStripGammaPreview: 'Preview (4 samples from small to large).',
+        'Controls the size contrast between monitor cards in the monitor list.',
       recentPlaylistFolders: 'Recent Playlist Folders',
       noRecentPlaylistFolders: 'No recent playlist folders yet.'
+    },
+    about: {
+      title: 'About Parallaxer',
+      summary: 'Parallaxer is open source software released under the MIT License.',
+      license: 'License'
     },
     playlist: {
       name: 'Playlist Name',
@@ -166,6 +182,20 @@ export const messages = {
       sourceFolder: 'Source Folder',
       configuration: 'Configuration',
       selectConfiguration: 'Select configuration',
+      mappingGuideTitle: 'What should I do?',
+      mappingGuideConfigTitle: 'Choose a configuration first',
+      mappingGuideConfigBody:
+        'Pick the configuration that defines your monitor order and geometry before Parallaxer maps any media.',
+      mappingGuideNoConfiguration: 'No configuration yet?',
+      mappingGuideCreateConfiguration: 'Create configuration',
+      mappingGuideSplitTitle: 'Root folder media is split automatically',
+      mappingGuideSplitBody:
+        'Parallaxer reads all images and videos in this folder root, slices each asset horizontally by the number of displays in the selected configuration, then maps those slices from left to right using the configuration order.',
+      mappingGuideOverrideTitle: 'shortName folders override the shared slice',
+      mappingGuideOverrideBody:
+        'If a display has a short name, you can create a folder with that exact name and place a same-named file inside it. When a matching file exists there, that folder-specific resource is sent to the corresponding display instead of using the shared horizontal slice.',
+      mappingGuidePlayingPrefix: 'playing ',
+      mappingGuidePlayingMiddle: ' on monitor ',
       empty: 'Select or create a playlist.'
     },
     monitor: {
@@ -191,6 +221,13 @@ export const messages = {
       namePlaceholder: 'Configuration name',
       description: 'Description',
       descriptionPlaceholder: 'Describe this monitor mapping',
+      guideTitle: 'What should I do?',
+      guideAddTitle: 'Add the displays you want to use',
+      guideAddBody:
+        'Add every display that should show your content. The order here defines how shared media is sliced and mapped from left to right.',
+      guidePreviewTitle: 'Preview and calibrate',
+      guidePreviewBody:
+        'Move this window onto a display you will not use if possible, then click Preview configuration in the top-right corner. The calibration view appears on the mapped displays, and the selected one gets a blue edge so you can tune it live. If you have no spare display, that is fine — press ESC anytime to exit preview.',
       layoutTitle: 'Monitor list',
       layoutCopy: 'Drag to reorder, the order determines where the image goes when auto-splitting',
       remove: 'Remove',
@@ -198,8 +235,12 @@ export const messages = {
       shortNamePlaceholder: 'display-a',
       rotation: 'Rotation',
       mirror: 'Mirror',
-      fit: 'Fit',
       scale: 'Scale',
+      scaleX: 'Scale X',
+      scaleY: 'Scale Y',
+      lockScaleRatio: 'Lock ratio',
+      unlockScaleRatio: 'Unlock ratio',
+      offset: 'Offset',
       offsetX: 'Offset X (px)',
       offsetY: 'Offset Y (px)',
       empty: 'Select or create a configuration.',
@@ -302,6 +343,9 @@ export const messages = {
       file: '文件',
       edit: '编辑',
       help: '帮助',
+      minimize: '最小化',
+      maximizeRestore: '最大化 / 还原',
+      close: '关闭',
       newConfig: '新建配置',
       newPlaylist: '新建播放列表',
       openPlaylistFolder: '打开播放列表目录',
@@ -315,7 +359,8 @@ export const messages = {
         monitors: '显示器',
         configurations: '配置',
         playlists: '播放列表',
-        settings: '设置'
+        settings: '设置',
+        about: '关于'
       },
       sidebar: {
         live: '在线',
@@ -335,6 +380,8 @@ export const messages = {
         previous: '上一张',
         stop: '停止',
         next: '下一张',
+        collapseSidebar: '收起侧边栏',
+        expandSidebar: '展开侧边栏',
         forgetMonitor: '忘记显示器',
         stopPreview: '停止预览',
         previewConfiguration: '预览配置',
@@ -350,6 +397,8 @@ export const messages = {
         reloadPlaylists: '重新加载播放列表',
         openPlaylistFolder: '打开播放列表目录',
         openSettings: '打开设置',
+        collapseList: '收起列表',
+        expandList: '展开列表',
         unfavoriteConfiguration: '取消配置收藏',
         favoriteConfiguration: '收藏配置',
         deleteConfiguration: '删除配置',
@@ -370,13 +419,21 @@ export const messages = {
       currentConfiguration: '当前配置'
     },
     settings: {
+      themeMode: '主题',
+      themeSystem: '跟随系统',
+      themeDark: '深色',
+      themeLight: '浅色',
       appRoot: '应用根目录',
       storageHint: '设置和显示器标签保存在 ~/.parallaxer；每个播放列表会在其源目录旁以 playlist.json 持久化。',
-      monitorStripGamma: '显示器条非线性缩放 Gamma',
-      monitorStripGammaHint: '调整布局条中小尺寸显示器的压缩强度。',
-      monitorStripGammaPreview: '预览（从小到大 4 个样本）。',
+      monitorStripGamma: '预览尺寸对比强度',
+      monitorStripGammaHint: '控制显示器列表中显示器卡片的大小对比强度。',
       recentPlaylistFolders: '最近播放列表目录',
       noRecentPlaylistFolders: '暂无最近播放列表目录。'
+    },
+    about: {
+      title: '关于 Parallaxer',
+      summary: 'Parallaxer 是基于 MIT 协议发布的开源软件。',
+      license: '开源协议'
     },
     playlist: {
       name: '播放列表名称',
@@ -384,6 +441,20 @@ export const messages = {
       sourceFolder: '源目录',
       configuration: '配置',
       selectConfiguration: '选择配置',
+      mappingGuideTitle: '我该做什么？',
+      mappingGuideConfigTitle: '先选择配置文件',
+      mappingGuideConfigBody:
+        '先选择定义了显示器顺序和几何关系的配置文件，Parallaxer 才会按这套规则去映射影像。',
+      mappingGuideNoConfiguration: '没有配置文件？',
+      mappingGuideCreateConfiguration: '新建配置',
+      mappingGuideSplitTitle: '根目录影像会自动水平切分',
+      mappingGuideSplitBody:
+        'Parallaxer 会读取当前文件夹根目录下的所有图片和视频，按照所选配置中的显示器数量进行水平平分，并依照配置中的顺序从左到右映射到对应显示器上。',
+      mappingGuideOverrideTitle: '短名称文件夹会覆盖共享切片',
+      mappingGuideOverrideBody:
+        '如果你为显示器配置了短名称，可以创建与短名称对应的文件夹，并把同名文件放进去。只要存在匹配的同名资源，这个子文件夹里的资源就会优先映射到对应平面，而不是使用根目录影像的水平切片。',
+      mappingGuidePlayingPrefix: '播放 ',
+      mappingGuidePlayingMiddle: '于显示器 ',
       empty: '请从侧边栏选择或创建播放列表。'
     },
     monitor: {
@@ -409,6 +480,13 @@ export const messages = {
       namePlaceholder: '配置名称',
       description: '描述',
       descriptionPlaceholder: '描述该显示器映射',
+      guideTitle: '我该做什么？',
+      guideAddTitle: '添加需要展示内容用的显示器',
+      guideAddBody:
+        '先把所有需要参与展示的显示器加进来。这里的顺序会决定共享内容如何从左到右切分并映射到对应平面。',
+      guidePreviewTitle: '预览并校准',
+      guidePreviewBody:
+        '尽量把当前窗口放到你不会用上的显示器上，再点击右上角的“预览配置”。校正画面会出现在对应平面上；当前选中的那块会出现蓝色高光边缘，方便你实时调整。如果没有空闲显示器也没关系，随时按 ESC 都可以退出预览。',
       layoutTitle: '显示器列表',
       layoutCopy: '拖动重排序，顺序决定了自动切分时影像的去向',
       remove: '移除',
@@ -416,8 +494,12 @@ export const messages = {
       shortNamePlaceholder: 'display-a',
       rotation: '旋转',
       mirror: '镜像',
-      fit: '适配',
       scale: '缩放',
+      scaleX: 'X 缩放',
+      scaleY: 'Y 缩放',
+      lockScaleRatio: '锁定比例',
+      unlockScaleRatio: '取消锁定比例',
+      offset: '偏移',
       offsetX: 'X 偏移 (px)',
       offsetY: 'Y 偏移 (px)',
       empty: '请先选择或创建配置。',

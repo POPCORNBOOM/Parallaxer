@@ -12,14 +12,17 @@ import {
   mapMonitorStripHeight,
   normalizeMonitorStripHeightGamma
 } from '../../lib/ui';
+import type { ThemeMode } from '../../types';
 import { getLocale, setLocale, SUPPORTED_LOCALES, type AppLocale } from '../../i18n';
 
 const props = defineProps<{
   monitorStripHeightGamma: number;
+  themeMode: ThemeMode;
 }>();
 
 const emit = defineEmits<{
   'monitor-strip-gamma-changed': [value: number];
+  'theme-mode-changed': [value: ThemeMode];
 }>();
 
 const { t } = useI18n({ useScope: 'global' });
@@ -27,6 +30,11 @@ const { t } = useI18n({ useScope: 'global' });
 const localeOptions = computed(() => [
   { value: 'en' as const, label: t('common.english') },
   { value: 'zh-CN' as const, label: t('common.chineseSimplified') }
+]);
+const themeOptions = computed(() => [
+  { value: 'system' as const, label: t('settings.themeSystem') },
+  { value: 'dark' as const, label: t('settings.themeDark') },
+  { value: 'light' as const, label: t('settings.themeLight') }
 ]);
 
 const currentLocale = computed(() => getLocale());
@@ -74,6 +82,12 @@ const previewItems = computed(() => {
 function onLocaleChanged(value: string): void {
   if ((SUPPORTED_LOCALES as readonly string[]).includes(value)) {
     setLocale(value as AppLocale);
+  }
+}
+
+function onThemeChanged(value: string): void {
+  if (value === 'dark' || value === 'light' || value === 'system') {
+    emit('theme-mode-changed', value);
   }
 }
 
@@ -177,6 +191,11 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="detail-stack detail-section">
+      <label class="detail-label">{{ t('settings.themeMode') }}</label>
+      <AppSelect :model-value="props.themeMode" :options="themeOptions" @update:model-value="onThemeChanged" />
+    </section>
+
+    <section class="detail-stack detail-section">
       <div class="detail-heading-row">
         <div class="detail-label-with-hint">
           <label class="detail-label" for="monitor-strip-gamma">{{ t('settings.monitorStripGamma') }}</label>
@@ -207,7 +226,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-      <p class="settings-hint">{{ t('settings.monitorStripGammaPreview') }}</p>
     </section>
 
     <section class="detail-stack detail-section">
@@ -218,7 +236,7 @@ onBeforeUnmount(() => {
           <i class="mdi mdi-help-circle-outline hint-icon" aria-hidden="true" />
         </button>
       </div>
-      <strong>{{ formatAppRootPath() }}</strong>
+      <strong class="app-root-path">{{ formatAppRootPath() }}</strong>
     </section>
   </div>
 </template>
@@ -243,11 +261,6 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-.detail-label {
-  font-size: 11px;
-  letter-spacing: 0.03em;
 }
 
 .hint-anchor {
@@ -281,7 +294,7 @@ onBeforeUnmount(() => {
 
 .gamma-value {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: var(--font-weight-ui-value);
 }
 
 .gamma-slider {
@@ -378,8 +391,8 @@ onBeforeUnmount(() => {
 .gamma-monitor-card {
   position: relative;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--color-monitor-card-border);
+  background: var(--color-monitor-card-bg);
   overflow: hidden;
 }
 
@@ -394,32 +407,38 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+    linear-gradient(180deg, var(--color-monitor-card-bg-hover), var(--color-monitor-card-bg)),
     repeating-linear-gradient(0deg,
       transparent 0,
       transparent 17px,
-      rgba(255, 255, 255, 0.04) 17px,
-      rgba(255, 255, 255, 0.04) 18px),
+      var(--color-monitor-grid-line) 17px,
+      var(--color-monitor-grid-line) 18px),
     repeating-linear-gradient(90deg,
       transparent 0,
       transparent 17px,
-      rgba(255, 255, 255, 0.04) 17px,
-      rgba(255, 255, 255, 0.04) 18px);
+      var(--color-monitor-grid-line) 17px,
+      var(--color-monitor-grid-line) 18px);
 }
 
 .gamma-monitor-preview-word {
   position: relative;
   z-index: 1;
   font-size: clamp(9px, 1.6vw, 14px);
-  font-weight: 600;
+  font-weight: var(--font-weight-ui-section);
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.52);
+  color: var(--color-monitor-word);
 }
 
-.settings-hint,
-strong {
+.settings-hint {
   font-size: 13px;
   line-height: 1.4;
+}
+
+.app-root-path {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-ui-value);
 }
 
 @media (max-width: 760px) {

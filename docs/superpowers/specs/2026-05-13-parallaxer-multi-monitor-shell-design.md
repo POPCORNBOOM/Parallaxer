@@ -239,7 +239,7 @@ Application-managed persistence replaces the old single project file workflow.
 
 ### App root
 
-- `~/.parallaxer/.parallaxer.json`
+- `~/.parallaxer/.parallaxer`
 
 Stores:
 

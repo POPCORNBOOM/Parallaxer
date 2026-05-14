@@ -32,7 +32,8 @@ function createDisplay(overrides: Partial<PresentationDisplayPayload> = {}): Pre
     mapping: {
       rotation: 0,
       mirror: 'none',
-      scale: 1,
+      scaleX: 1,
+      scaleY: 1,
       offsetX: 0,
       offsetY: 0
     },
@@ -50,9 +51,8 @@ describe('presentation helpers', () => {
     expect(config.height).toBe(1152);
   });
 
-  test('buildMediaFrameStyle keeps cropped slices centered under cover fit', () => {
+  test('buildMediaFrameStyle keeps cropped slices centered under contain baseline', () => {
     const style = buildMediaFrameStyle({
-      fit: 'cover',
       viewportWidth: 1720,
       viewportHeight: 1440,
       mediaWidth: 1720,
@@ -67,7 +67,6 @@ describe('presentation helpers', () => {
 
   test('buildMediaFrameDimensions uses the actual cropped slice aspect ratio', () => {
     const dimensions = buildMediaFrameDimensions({
-      fit: 'contain',
       viewportWidth: 1920,
       viewportHeight: 1080,
       mediaWidth: 960,
@@ -85,8 +84,8 @@ describe('presentation helpers', () => {
       buildMonitorTransform({
         rotation: 0,
         mirror: 'horizontal',
-        fit: 'contain',
-        scale: 1,
+        scaleX: 1,
+        scaleY: 1,
         offsetX: 0,
         offsetY: 0
       })
@@ -98,8 +97,8 @@ describe('presentation helpers', () => {
       buildMonitorTransform({
         rotation: 0,
         mirror: 'none',
-        fit: 'contain',
-        scale: 1,
+        scaleX: 1,
+        scaleY: 1,
         offsetX: 120,
         offsetY: -40
       })
@@ -108,7 +107,6 @@ describe('presentation helpers', () => {
 
   test('shared slices can be cropped before scaling by using natural slice dimensions', () => {
     const sliceFrame = buildMediaFrameDimensions({
-      fit: 'cover',
       viewportWidth: 1720,
       viewportHeight: 1440,
       mediaWidth: 1720,

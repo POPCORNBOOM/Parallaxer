@@ -28,7 +28,14 @@ export interface PlaybackContext {
 }
 
 export type PlaybackControl = 'previous' | 'next' | 'stop';
-export type PresentationVideoSignal = 'ready' | 'ended' | 'play' | 'restart' | 'toggle-pause';
+export type PresentationVideoSignal =
+  | 'ready'
+  | 'ended'
+  | 'play'
+  | 'restart'
+  | 'toggle-pause'
+  | 'seek-backward'
+  | 'seek-forward';
 
 export function createPlaybackSession(): PlaybackSession {
   return {

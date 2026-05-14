@@ -313,7 +313,7 @@ If `wmi` proves too awkward, use a Windows-only command fallback that still retu
 Create backend structs mirroring the new frontend contracts. Add helpers for:
 
 - app root resolution: `~/.parallaxer`
-- settings file path: `~/.parallaxer/.parallaxer.json`
+- settings file path: `~/.parallaxer/.parallaxer`
 - configurations dir: `~/.parallaxer/configurations`
 - playlist file path: `<folder>/playlist.json`
 

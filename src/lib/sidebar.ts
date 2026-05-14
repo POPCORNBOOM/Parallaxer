@@ -7,7 +7,7 @@ export const SIDEBAR_MAX_WIDTH = 420;
 export const SIDEBAR_COLLAPSE_THRESHOLD = 180;
 export const SIDEBAR_COLLAPSED_WIDTH = 0;
 
-export type WorkbenchPage = 'monitor' | 'configuration' | 'playlist' | 'settings';
+export type WorkbenchPage = 'monitor' | 'configuration' | 'playlist' | 'settings' | 'about';
 
 export interface SidebarAction {
   key?: string;
