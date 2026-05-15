@@ -3,30 +3,31 @@
 [English](./README.md) | [简体中文](./docs/README_zhCN.md)
 
 <p align="center">
-  <img src="./app-icon.png" alt="Parallaxer icon" width="132" height="132">
+  <img style="filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5))" src="./app-icon.png" alt="Parallaxer icon" width="132" height="132">
+</p>
+<p align="center">
+
+  [![Vue 3](https://badgen.net/badge/icon/Vue%203?icon=vue.js&label&color=42b883)](https://vuejs.org/)
+  [![Tauri 2](https://badgen.net/badge/icon/Tauri%202?icon=tauri&label&color=24C8DB)](https://tauri.app/)
+  [![TypeScript](https://badgen.net/badge/icon/typescript?icon=typescript&label&color=3178C6)](https://typescriptlang.org)
+
+  [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
+  [![Windows](https://badgen.net/badge/icon/Windows?icon=windows&label&color=0078D6)](https://microsoft.com/windows/)
+  [![macOS](https://badgen.net/badge/icon/macOS?icon=macos&label&color=111111)](https://apple.com/macos/)
+  [![Linux](https://badgen.net/badge/icon/Linux?icon=linux&label&color=FCC624 )](https://linux.org/)
+
+  ![Desktop](https://badgen.net/badge/icon/Desktop?icon=desktop&label=Multi--Display&color=3a3f47)
+  ![Monitor ID](https://badgen.net/badge/icon/Monitor%20ID?icon=monitor&label=EDID--first&color=4b5563)
+
 </p>
 
-<p align="center">
-  <a href="https://vuejs.org/">
-    <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vue.js&logoColor=white">
-  </a>
-  <a href="https://tauri.app/">
-    <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
-  </a>
-  <a href="https://www.typescriptlang.org/">
-    <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white">
-  </a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-supported-0078D6?style=flat-square&logo=windows&logoColor=white">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-supported-111111?style=flat-square&logo=apple&logoColor=white">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-supported-FCC624?style=flat-square&logo=linux&logoColor=111111">
-  <img alt="Desktop" src="https://img.shields.io/badge/Desktop-Multi--Display-3a3f47?style=flat-square">
-  <img alt="Monitor ID" src="https://img.shields.io/badge/Monitor%20ID-EDID--first-4b5563?style=flat-square">
-</p>
 <p align="center">
   <a href="https://github.com/POPCORNBOOM/Parallaxer/stargazers">
     <img alt="GitHub stars" src="https://img.shields.io/github/stars/POPCORNBOOM/Parallaxer?style=social">
   </a>
 </p>
+
+> 99% of the code in this project was produced with Codex assistance.
 
 Parallaxer is a desktop app for mapping images and videos across one or more displays, previewing the result in real time, and playing synchronized multi-screen content.
 
@@ -69,21 +70,20 @@ Each playlist is bound to:
 - one source folder
 - one configuration
 
-Parallaxer supports two content sources inside that folder:
+Parallaxer resolves media from two places inside that folder:
 
-1. Shared media in the source folder root
+1. Media files in the source folder root
 
-- Images and videos placed directly in the playlist folder root are treated as shared media.
-- Shared media is automatically divided horizontally by the number of monitors in the selected configuration.
+- Images and videos placed directly in the playlist folder root are the default source.
+- Root-level media is automatically divided horizontally by the number of monitors in the selected configuration.
 - Slices are mapped from left to right using the monitor order defined in the configuration.
 - This means one image or one video can be automatically split and shown across multiple displays at the same time.
 
-2. Per-monitor overrides using short-name folders
+2. Same-named files inside short-name folders
 
 - Each monitor in a configuration has a `shortName`.
-- If a subfolder matching that `shortName` exists, files inside that subfolder override the shared slice for that monitor.
+- If a subfolder matching that `shortName` exists and contains a same-named file, that file is shown on that monitor instead of the root-level slice.
 - A set of same-named assets can therefore live in different folders and be mapped to different displays at the same time.
-- This allows one playlist item to mix shared assets and per-monitor assets.
 
 ### Guide Screens
 

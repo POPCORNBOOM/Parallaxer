@@ -190,10 +190,10 @@ export const messages = {
       mappingGuideCreateConfiguration: 'Create configuration',
       mappingGuideSplitTitle: 'Root folder media is split automatically',
       mappingGuideSplitBody:
-        'Parallaxer reads all images and videos in this folder root, slices each asset horizontally by the number of displays in the selected configuration, then maps those slices from left to right using the configuration order.',
-      mappingGuideOverrideTitle: 'shortName folders override the shared slice',
+        'Parallaxer reads all images and videos in this folder root, splits each asset horizontally by the number of displays in the selected configuration, then maps those slices from left to right using the configuration order.',
+      mappingGuideOverrideTitle: 'shortName folders can show same-named files on specific displays',
       mappingGuideOverrideBody:
-        'If a display has a short name, you can create a folder with that exact name and place a same-named file inside it. When a matching file exists there, that folder-specific resource is sent to the corresponding display instead of using the shared horizontal slice.',
+        'If a display has a short name, you can create a folder with that exact name and place a same-named file inside it. When a matching file exists there, that display directly shows the file from its shortName folder.',
       mappingGuidePlayingPrefix: 'playing ',
       mappingGuidePlayingMiddle: ' on monitor ',
       empty: 'Select or create a playlist.'
@@ -450,9 +450,9 @@ export const messages = {
       mappingGuideSplitTitle: '根目录影像会自动水平切分',
       mappingGuideSplitBody:
         'Parallaxer 会读取当前文件夹根目录下的所有图片和视频，按照所选配置中的显示器数量进行水平平分，并依照配置中的顺序从左到右映射到对应显示器上。',
-      mappingGuideOverrideTitle: '短名称文件夹会覆盖共享切片',
+      mappingGuideOverrideTitle: '短名称文件夹可以直接映射同名文件',
       mappingGuideOverrideBody:
-        '如果你为显示器配置了短名称，可以创建与短名称对应的文件夹，并把同名文件放进去。只要存在匹配的同名资源，这个子文件夹里的资源就会优先映射到对应平面，而不是使用根目录影像的水平切片。',
+        '如果你为显示器配置了短名称，可以创建与短名称对应的文件夹，并把同名文件放进去。只要存在匹配的同名文件，这块屏就会直接显示短名称文件夹里的文件，而不是显示根目录影像切出来的那一份。',
       mappingGuidePlayingPrefix: '播放 ',
       mappingGuidePlayingMiddle: '于显示器 ',
       empty: '请从侧边栏选择或创建播放列表。'

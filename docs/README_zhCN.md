@@ -3,30 +3,31 @@
 [English](../README.md) | [简体中文](./README_zhCN.md)
 
 <p align="center">
-  <img src="../app-icon.png" alt="Parallaxer 图标" width="132" height="132">
+  <img style="filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5))" src="../app-icon.png" alt="Parallaxer icon" width="132" height="132">
+</p>
+<p align="center">
+
+  [![Vue 3](https://badgen.net/badge/icon/Vue%203?icon=vue.js&label&color=42b883)](https://vuejs.org/)
+  [![Tauri 2](https://badgen.net/badge/icon/Tauri%202?icon=tauri&label&color=24C8DB)](https://tauri.app/)
+  [![TypeScript](https://badgen.net/badge/icon/typescript?icon=typescript&label&color=3178C6)](https://typescriptlang.org)
+
+  [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
+  [![Windows](https://badgen.net/badge/icon/Windows?icon=windows&label&color=0078D6)](https://microsoft.com/windows/)
+  [![macOS](https://badgen.net/badge/icon/macOS?icon=macos&label&color=111111)](https://apple.com/macos/)
+  [![Linux](https://badgen.net/badge/icon/Linux?icon=linux&label&color=FCC624 )](https://linux.org/)
+
+  ![Desktop](https://badgen.net/badge/icon/Desktop?icon=desktop&label=Multi--Display&color=3a3f47)
+  ![Monitor ID](https://badgen.net/badge/icon/Monitor%20ID?icon=monitor&label=EDID--first&color=4b5563)
+
 </p>
 
-<p align="center">
-  <a href="https://vuejs.org/">
-    <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square&logo=vue.js&logoColor=white">
-  </a>
-  <a href="https://tauri.app/">
-    <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
-  </a>
-  <a href="https://www.typescriptlang.org/">
-    <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white">
-  </a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-supported-0078D6?style=flat-square&logo=windows&logoColor=white">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-supported-111111?style=flat-square&logo=apple&logoColor=white">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-supported-FCC624?style=flat-square&logo=linux&logoColor=111111">
-  <img alt="Desktop" src="https://img.shields.io/badge/Desktop-Multi--Display-3a3f47?style=flat-square">
-  <img alt="Monitor ID" src="https://img.shields.io/badge/Monitor%20ID-EDID--first-4b5563?style=flat-square">
-</p>
 <p align="center">
   <a href="https://github.com/POPCORNBOOM/Parallaxer/stargazers">
     <img alt="GitHub stars" src="https://img.shields.io/github/stars/POPCORNBOOM/Parallaxer?style=social">
   </a>
 </p>
+
+> 99% 的代码由 Codex 辅助产生。
 
 Parallaxer 是一个面向多显示器内容映射与同步播放的桌面应用。它可以把图片或视频映射到 1 块、2 块、3 块甚至更多显示器上，并提供实时预览与校准能力。
 
@@ -69,21 +70,20 @@ Parallaxer 适合这种场景：
 - 一个素材源文件夹
 - 一个配置文件
 
-Parallaxer 支持两种素材来源：
+Parallaxer 会从两个位置解析素材：
 
-### 1. 根目录共享素材
+### 1. 根目录素材
 
-- 放在播放列表根目录下的图片和视频会被视为共享素材。
-- 共享素材会按照所选配置中的显示器数量进行**自动水平平分**。
+- 放在播放列表根目录下的图片和视频就是默认素材来源。
+- 根目录素材会按照所选配置中的显示器数量进行**自动水平平分**。
 - 切片会按照配置中的显示器顺序，从左到右映射到各个显示器。
 - 也就是说，一张图或一个视频可以自动平分后，同时分配到多个显示器上展示。
 
-### 2. 基于短名称的单屏覆盖素材
+### 2. 短名称文件夹中的同名素材
 
 - 配置中的每块屏都有一个 `shortName`。
-- 如果源文件夹内存在与该 `shortName` 同名的子文件夹，那么该子文件夹中的同名文件会覆盖共享切片。
+- 如果源文件夹内存在与该 `shortName` 同名的子文件夹，并且里面有同名文件，那么这块屏就直接显示该文件，而不是显示根目录切出来的切片。
 - 也就是说，一组同名影像可以通过放在不同文件夹中，映射到不同显示器上同时展示。
-- 这样你可以在同一个播放列表里混合使用“共享素材”和“单屏专属素材”。
 
 ### Guide 示例
 
