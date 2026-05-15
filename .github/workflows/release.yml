@@ -49,6 +49,18 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Verify Rust toolchain
+        shell: bash
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup default stable
+          echo "rustup: $(which rustup)"
+          echo "cargo: $(which cargo)"
+          echo "rustc: $(which rustc)"
+          rustup show active-toolchain
+          cargo --version
+          rustc --version
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
