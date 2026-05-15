@@ -320,6 +320,7 @@ struct PlatformMonitorMetadata {
     edid: Option<String>,
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Debug, Clone)]
 struct PlatformMonitorCandidate {
     width: Option<u32>,
@@ -397,6 +398,7 @@ fn normalize_monitor_instance_key(value: &str) -> String {
     value
 }
 
+#[cfg(windows)]
 fn normalize_display_name_key(value: &str) -> String {
     value
         .trim()
@@ -404,6 +406,7 @@ fn normalize_display_name_key(value: &str) -> String {
         .to_ascii_uppercase()
 }
 
+#[cfg(windows)]
 fn build_monitor_geometry_lookup_key(
     position_x: i32,
     position_y: i32,
@@ -539,6 +542,7 @@ fn build_edid_device_id_from_bytes(bytes: &[u8]) -> Option<String> {
     ))
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn metadata_from_edid_bytes(
     edid_bytes: &[u8],
     system_name: Option<String>,
@@ -2214,6 +2218,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn normalize_display_name_key_strips_windows_prefix() {
         assert_eq!(normalize_display_name_key(r"\\.\DISPLAY66"), "DISPLAY66");
@@ -2238,6 +2243,7 @@ mod tests {
         );
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn metadata_from_edid_bytes_preserves_parsed_identity() {
         let mut edid = vec![0_u8; 128];
